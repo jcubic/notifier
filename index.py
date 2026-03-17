@@ -167,20 +167,31 @@ def extract_value(element, value_spec, default=None):
     return raw
 
 
-def extract_id(item_data, id_spec):
+def extract_id(item_data, id_spec, element=None):
     """
     Extract a unique ID from item data.
 
     id_spec: {
-      "source": "url",          # which variable to use
-      "regex": ",(\\d+)/$"      # regex to extract the ID
+      "source": "url",          # which variable to use as source
+      "regex": ",(\\d+)/$"      # optional regex to extract the ID
+    }
+
+    Or for reading an HTML attribute directly from the element:
+
+    id_spec: {
+      "type": "attribute",
+      "name": "id"              # HTML attribute name on the matched element
     }
     """
     if not id_spec:
         # Fallback: use url if available, otherwise hash all values
         return item_data.get("url", str(hash(frozenset(item_data.items()))))
 
-    source_value = item_data.get(id_spec["source"], "")
+    # Read ID from an HTML attribute on the element itself
+    if id_spec.get("type") == "attribute" and element is not None:
+        return str(element.get(id_spec.get("name", "id"), ""))
+
+    source_value = item_data.get(id_spec.get("source", ""), "")
     regex = id_spec.get("regex")
     if regex and source_value:
         match = re.search(regex, source_value)
@@ -216,10 +227,37 @@ def should_include(element, filter_spec):
 
 
 def extract_variables(element, variables_spec):
-    """Extract all defined variables from an element."""
+    """Extract all defined variables from an element.
+
+    Supports an optional "sibling" key in the variable spec. When present,
+    the selector is applied to the next sibling element(s) instead of
+    inside the matched element. Example:
+
+        "score": {
+          "sibling": true,
+          "selector": ".score",
+          "value": { "type": "text" }
+        }
+    """
     data = {}
     for var_name, var_spec in variables_spec.items():
-        sub_element = element.select_one(var_spec["selector"])
+        search_root = element
+        if var_spec.get("sibling"):
+            # Walk through next siblings until we find a non-spacer element
+            sibling = element.find_next_sibling()
+            while (
+                sibling
+                and sibling.get("class")
+                and "spacer" in sibling.get("class", [])
+            ):
+                sibling = sibling.find_next_sibling()
+            search_root = sibling
+
+        if search_root is None:
+            data[var_name] = var_spec.get("default", "")
+            continue
+
+        sub_element = search_root.select_one(var_spec["selector"])
         default = var_spec.get("default")
         value = extract_value(sub_element, var_spec["value"], default)
         data[var_name] = value if value is not None else ""
@@ -246,7 +284,7 @@ def parse_items(html, query_spec):
         if not should_include(element, filter_spec):
             return []
         data = extract_variables(element, variables)
-        data["id"] = extract_id(data, id_spec)
+        data["id"] = extract_id(data, id_spec, element)
         return [data]
 
     elif query_type == "list":
@@ -256,36 +294,58 @@ def parse_items(html, query_spec):
             if not should_include(el, filter_spec):
                 continue
             data = extract_variables(el, variables)
-            data["id"] = extract_id(data, id_spec)
+            data["id"] = extract_id(data, id_spec, el)
             items.append(data)
         return items
 
     return []
 
 
-def has_more_pages(html, page_num):
-    """Check if there are more pages by looking for a page link with a higher number."""
+def find_next_page_url(html, pagination_spec, current_url):
+    """
+    Find the next page URL based on pagination config.
+
+    Supports two pagination types:
+
+    "next_link" - follow a specific "next" link on the page:
+        { "type": "next_link", "selector": "a.morelink", "base_url": "..." }
+
+    "numbered" - find the next numbered page after the active one:
+        { "type": "numbered", "selector": ".pagination .pagination__page",
+          "active_class": "pagination__page--active", "base_url": "..." }
+    """
+    if not pagination_spec:
+        return None
+
     soup = BeautifulSoup(html, "html.parser")
-    # Look for any pagination page link with a number higher than current
-    page_links = soup.select(".pagination .pagination__page")
-    for link in page_links:
-        text = link.get_text(strip=True)
-        try:
-            if int(text) > page_num:
-                return True
-        except ValueError:
-            continue
-    return False
+    base_url = pagination_spec.get("base_url", current_url)
+    pag_type = pagination_spec.get("type", "next_link")
 
+    if pag_type == "next_link":
+        link = soup.select_one(pagination_spec["selector"])
+        if link:
+            href = str(link.get("href", ""))
+            if href:
+                return urljoin(base_url, href)
+        return None
 
-def build_page_url(base_url, url_template, params, page_num):
-    """Build URL for a specific page number."""
-    if page_num == 1:
-        return render_url(url_template, params)
-    # Add page parameter to the URL
-    first_page_url = render_url(url_template, params)
-    separator = "&" if "?" in first_page_url else "?"
-    return f"{first_page_url}{separator}page={page_num}"
+    elif pag_type == "numbered":
+        all_pages = soup.select(pagination_spec["selector"])
+        active_class = pagination_spec.get("active_class", "")
+        found_active = False
+        for page_link in all_pages:
+            classes = page_link.get("class") or []
+            if active_class and active_class in classes:
+                found_active = True
+                continue
+            if found_active:
+                href = str(page_link.get("href", ""))
+                if href:
+                    return urljoin(base_url, href)
+                break
+        return None
+
+    return None
 
 
 def fetch_all_items(definition, params):
@@ -298,14 +358,9 @@ def fetch_all_items(definition, params):
     max_pages = pagination_spec.get("max_pages", 1) if pagination_spec else 1
     all_items = []
     page_num = 1
+    url = render_url(definition["url"], params)
 
     while page_num <= max_pages:
-        url = build_page_url(
-            pagination_spec.get("base_url", "") if pagination_spec else "",
-            definition["url"],
-            params,
-            page_num,
-        )
         print(f"  [{datetime.now()}] Fetching page {page_num}: {url}")
         html = fetch_page(url)
         items = parse_items(html, query_spec)
@@ -315,7 +370,9 @@ def fetch_all_items(definition, params):
 
         all_items.extend(items)
 
-        if pagination_spec and has_more_pages(html, page_num):
+        next_url = find_next_page_url(html, pagination_spec, url)
+        if next_url:
+            url = next_url
             page_num += 1
         else:
             break

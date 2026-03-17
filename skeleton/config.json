@@ -8,34 +8,67 @@
     }
   },
   "defs": {
-    "example": {
-      "url": "https://example.com",
+    "hackernews": {
+      "url": "https://news.ycombinator.com",
+      "pagination": {
+        "type": "next_link",
+        "selector": "a.morelink",
+        "base_url": "https://news.ycombinator.com/",
+        "max_pages": 2
+      },
       "query": {
-        "type": "single",
-        "selector": "div",
+        "type": "list",
+        "selector": "tr.athing.submission",
         "id": {
-          "source": "title",
-          "regex": "(.+)"
+          "type": "attribute",
+          "name": "id"
         },
         "variables": {
           "title": {
-            "selector": "h1",
-            "value": {
-              "type": "text"
-            }
-          },
-          "description": {
-            "selector": "p",
+            "selector": ".titleline > a",
             "value": {
               "type": "text"
             }
           },
           "url": {
-            "selector": "a",
+            "selector": ".titleline > a",
             "value": {
               "type": "attribute",
               "name": "href"
             }
+          },
+          "rank": {
+            "selector": ".rank",
+            "value": {
+              "type": "text"
+            },
+            "default": ""
+          },
+          "score": {
+            "sibling": true,
+            "selector": ".score",
+            "value": {
+              "type": "text"
+            },
+            "default": "0 points"
+          },
+          "age": {
+            "sibling": true,
+            "selector": ".age a",
+            "value": {
+              "type": "text"
+            },
+            "default": ""
+          },
+          "comments_url": {
+            "sibling": true,
+            "selector": ".age a",
+            "value": {
+              "type": "attribute",
+              "name": "href",
+              "prefix": "https://news.ycombinator.com/"
+            },
+            "default": ""
           }
         }
       }
@@ -43,10 +76,10 @@
   },
   "rules": [
     {
-      "ref": "example",
-      "name": "example",
-      "subject": "Update from example.com: {{title}}",
-      "template": "./templates/example",
+      "ref": "hackernews",
+      "name": "hackernews",
+      "subject": "Hacker News: {{count}} new stories",
+      "template": "./templates/hackernews",
       "email": "you@example.com"
     }
   ]

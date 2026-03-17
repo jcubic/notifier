@@ -1,0 +1,14 @@
+Hacker News - New Stories
+Checked at: {{now}}
+
+Number of new stories: {{count}}
+============================================================
+{{#items}}
+
+{{rank}} {{title}}
+     Score: {{score}} | {{age}}
+     URL:   {{url}}
+     HN:    {{comments_url}}
+{{/items}}
+
+============================================================
