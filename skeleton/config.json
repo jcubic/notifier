@@ -1,0 +1,53 @@
+{
+  "email": {
+    "server": {
+      "host": "smtp.example.com",
+      "port": 587,
+      "password": "your-password-here",
+      "email": "you@example.com"
+    }
+  },
+  "defs": {
+    "example": {
+      "url": "https://example.com",
+      "query": {
+        "type": "single",
+        "selector": "div",
+        "id": {
+          "source": "title",
+          "regex": "(.+)"
+        },
+        "variables": {
+          "title": {
+            "selector": "h1",
+            "value": {
+              "type": "text"
+            }
+          },
+          "description": {
+            "selector": "p",
+            "value": {
+              "type": "text"
+            }
+          },
+          "url": {
+            "selector": "a",
+            "value": {
+              "type": "attribute",
+              "name": "href"
+            }
+          }
+        }
+      }
+    }
+  },
+  "rules": [
+    {
+      "ref": "example",
+      "name": "example",
+      "subject": "Update from example.com: {{title}}",
+      "template": "./templates/example",
+      "email": "you@example.com"
+    }
+  ]
+}

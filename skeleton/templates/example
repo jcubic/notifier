@@ -1,0 +1,9 @@
+Update from example.com
+Checked at: {{now}}
+
+{{#items}}
+--- Item {{index}} ---
+  Title:       {{title}}
+  Description: {{description}}
+  URL:         {{url}}
+{{/items}}
