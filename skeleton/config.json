@@ -78,6 +78,7 @@
     {
       "ref": "hackernews",
       "name": "hackernews",
+      "schedule": "0 */6 * * *",
       "subject": "Hacker News: {{count}} new stories",
       "template": "./templates/hackernews",
       "email": "you@example.com"

@@ -2,14 +2,14 @@
 
 A generic, config-driven web scraper that monitors websites for changes and sends email notifications. Define what to scrape using CSS selectors in a JSON config file, and format notifications with Mustache templates.
 
-Designed to run as a daily cron job.
+Designed to run as a cron job. Each rule has its own schedule (cron expression), so the script can be invoked frequently (e.g. every hour) and each rule runs only when its schedule is due.
 
 ## Installation
 
 ### Dependencies
 
 ```bash
-pip install requests beautifulsoup4 pystache
+pip install requests beautifulsoup4 pystache croniter
 ```
 
 ### First run
@@ -28,15 +28,18 @@ Edit `~/.notifier/config.json` with your SMTP credentials and scraping rules, th
 ## Usage
 
 ```bash
-python3 index.py                  # process all rules, send emails
+python3 index.py                  # process rules whose schedule is due
+python3 index.py --force          # ignore schedules, run all rules now
 python3 index.py --save-email     # save emails to files instead of sending
 python3 index.py --dry-run        # fetch and display data, no emails, no state changes
 ```
 
 ### Cron example
 
+Run the script every hour on the hour. Each rule's `schedule` field controls when it actually executes:
+
 ```cron
-0 8 * * * /usr/bin/python3 /path/to/index.py
+0 * * * * /usr/bin/python3 /path/to/index.py
 ```
 
 ## File structure
@@ -48,6 +51,7 @@ python3 index.py --dry-run        # fetch and display data, no emails, no state 
     hackernews
   data/                    # state files (tracked items per rule)
     hackernews
+    .lastrun_hackernews    # last run timestamp for schedule tracking
     emails/                # saved copies of sent emails
 ```
 
@@ -107,6 +111,7 @@ Each rule references a definition and can override params, email recipient, temp
 {
   "ref": "hackernews",
   "name": "hackernews",
+  "schedule": "0 */6 * * *",
   "subject": "Hacker News: {{count}} new stories",
   "template": "./templates/hackernews",
   "email": "you@example.com"
@@ -119,6 +124,7 @@ Each rule references a definition and can override params, email recipient, temp
 |-------|----------|-------------|
 | `ref` | yes | Name of the definition in `defs` |
 | `name` | yes | Unique rule name. Used for state file (`~/.notifier/data/<name>`) |
+| `schedule` | no | Cron expression for when to run (see [Schedule](#schedule)). If omitted, runs every time. |
 | `subject` | yes | Mustache template for the email subject line |
 | `template` | yes | Path to the Mustache template file (relative to `~/.notifier/`) |
 | `email` | yes | Recipient email address |
@@ -256,6 +262,43 @@ Finds the active page button and follows the link of the next one.
 |-------|----------|-------------|
 | `max_pages` | no | Maximum number of pages to fetch (default: 1) |
 | `base_url` | no | Base URL for resolving relative `href` values |
+
+## Schedule
+
+Each rule can have a `schedule` field with a standard cron expression. The script is designed to be invoked frequently (e.g. every hour via system cron), and it decides internally which rules are due based on their schedule.
+
+The schedule uses [croniter](https://github.com/kiorky/croniter) to parse standard 5-field cron expressions:
+
+```
+ ┌───────────── minute (0-59)
+ │ ┌───────────── hour (0-23)
+ │ │ ┌───────────── day of month (1-31)
+ │ │ │ ┌───────────── month (1-12)
+ │ │ │ │ ┌───────────── day of week (0-7, 0 and 7 are Sunday)
+ │ │ │ │ │
+ * * * * *
+```
+
+### Examples
+
+| Expression | Meaning |
+|------------|---------|
+| `0 8 * * *` | Daily at 8:00 |
+| `0 */6 * * *` | Every 6 hours (0:00, 6:00, 12:00, 18:00) |
+| `0 9 * * 1` | Every Monday at 9:00 |
+| `*/30 * * * *` | Every 30 minutes |
+| `0 8,20 * * *` | Twice daily at 8:00 and 20:00 |
+
+### How it works
+
+The script is designed to be invoked every hour by system cron (`0 * * * *`). On each invocation:
+
+1. The current time is truncated to the start of the hour (e.g. 14:03 becomes 14:00)
+2. Each rule's cron expression is checked against that hour using `croniter.match`
+3. If it matches and the rule hasn't already run this hour, it executes
+4. After a successful run, a timestamp is saved to `~/.notifier/data/.lastrun_<rule_name>` to prevent duplicate runs if the script is triggered again within the same hour
+5. If no schedule is set, the rule runs every time
+6. Use `--force` to bypass all schedules
 
 ## Email templates
 

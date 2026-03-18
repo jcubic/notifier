@@ -8,7 +8,8 @@ using CSS selectors, detects new items, and sends email notifications using
 Mustache templates. Processes all rules defined in config on each run.
 
 Usage:
-    index.py                  # process all rules
+    index.py                  # process rules whose schedule is due
+    index.py --force          # ignore schedules and run all rules
     index.py --dry-run        # fetch and display data without sending emails
     index.py --save-email     # save emails to file instead of sending
 
@@ -24,6 +25,7 @@ import sys
 import smtplib
 import requests
 import pystache
+from croniter import croniter
 from email.message import EmailMessage
 from datetime import datetime
 from bs4 import BeautifulSoup
@@ -109,6 +111,60 @@ def save_state(rule_name, items):
     state_file = os.path.join(DATA_DIR, rule_name)
     with open(state_file, "w", encoding="utf-8") as f:
         json.dump(items, f, ensure_ascii=False, indent=2)
+
+
+def load_last_run(rule_name):
+    """Load the last run timestamp for a rule."""
+    run_file = os.path.join(DATA_DIR, f".lastrun_{rule_name}")
+    if os.path.exists(run_file):
+        try:
+            with open(run_file, "r", encoding="utf-8") as f:
+                return datetime.fromisoformat(f.read().strip())
+        except (ValueError, IOError):
+            pass
+    return None
+
+
+def save_last_run(rule_name):
+    """Save the current timestamp as last run for a rule."""
+    run_file = os.path.join(DATA_DIR, f".lastrun_{rule_name}")
+    with open(run_file, "w", encoding="utf-8") as f:
+        f.write(datetime.now().isoformat())
+
+
+def should_run_now(rule):
+    """
+    Check if a rule should run based on its cron schedule.
+
+    The script is designed to be invoked every hour by system cron.
+    We check if the current time (truncated to the start of the hour)
+    matches the rule's cron expression. Additionally, the last-run
+    timestamp prevents duplicate runs within the same hour.
+
+    Returns True if:
+      - No schedule is defined (always run)
+      - The current hour matches the cron expression AND the rule
+        hasn't already run this hour
+    """
+    schedule = rule.get("schedule")
+    if not schedule:
+        return True
+
+    # Truncate to the start of the current hour
+    now = datetime.now().replace(minute=0, second=0, microsecond=0)
+
+    if not croniter.match(schedule, now):
+        return False
+
+    # Prevent duplicate runs within the same hour
+    rule_name = rule["name"]
+    last_run = load_last_run(rule_name)
+    if last_run is not None:
+        last_run_hour = last_run.replace(minute=0, second=0, microsecond=0)
+        if last_run_hour >= now:
+            return False
+
+    return True
 
 
 def render_url(url_template, params):
@@ -489,6 +545,7 @@ def process_rule(config, rule, save_only=False):
 
     if not all_items:
         print(f"  [{datetime.now()}] No items found. Nothing to do.")
+        save_last_run(rule_name)
         return
 
     # Load previous state
@@ -517,8 +574,9 @@ def process_rule(config, rule, save_only=False):
     else:
         print(f"  [{datetime.now()}] No new items (all already known).")
 
-    # Save current state
+    # Save current state and last run time
     save_state(rule_name, all_items)
+    save_last_run(rule_name)
     print(f"  [{datetime.now()}] State saved for '{rule_name}'")
 
 
@@ -536,6 +594,11 @@ def main():
         action="store_true",
         help="Save email to file instead of sending",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Ignore schedules and run all rules immediately",
+    )
     args = parser.parse_args()
 
     init_config()
@@ -549,8 +612,14 @@ def main():
     print(f"[{datetime.now()}] Processing {len(rules)} rule(s)...")
 
     for rule in rules:
+        rule_name = rule["name"]
+
+        if not args.force and not args.dry_run and not should_run_now(rule):
+            schedule = rule.get("schedule", "")
+            print(f"\n[{datetime.now()}] Skipping '{rule_name}' (schedule: {schedule})")
+            continue
+
         if args.dry_run:
-            rule_name = rule["name"]
             ref = rule["ref"]
             params = rule.get("params", {})
             definition = config["defs"].get(ref)
