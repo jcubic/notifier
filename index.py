@@ -75,7 +75,7 @@ def send_error_email(subject, body):
 
         for recipient in recipients:
             msg = EmailMessage()
-            msg["From"] = sender
+            msg["From"] = f"Notifier <{sender}>"
             msg["To"] = recipient
             msg["Subject"] = subject
             msg.set_content(body)
@@ -553,7 +553,7 @@ def send_email(config, recipient, subject, body):
     sender = server_config["email"]
 
     msg = EmailMessage()
-    msg["From"] = sender
+    msg["From"] = f"Notifier <{sender}>"
     msg["To"] = recipient
     msg["Subject"] = subject
     msg.set_content(body)
