@@ -45,14 +45,10 @@ python3 index.py --dry-run        # fetch and display data, no emails, no state 
 ~/.notifier/
   config.json              # main configuration
   templates/               # Mustache email templates
-    useme
     hackernews
   data/                    # state files (tracked items per rule)
-    seo                    # JSON list of items for the "seo" rule
     hackernews
     emails/                # saved copies of sent emails
-      seo.txt
-      hackernews.txt
 ```
 
 ## Configuration
