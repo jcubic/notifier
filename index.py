@@ -36,7 +36,7 @@ NOTIFIER_DIR = os.path.expanduser("~/.notifier")
 CONFIG_FILE = os.path.join(NOTIFIER_DIR, "config.json")
 TEMPLATES_DIR = os.path.join(NOTIFIER_DIR, "templates")
 DATA_DIR = os.path.join(NOTIFIER_DIR, "data")
-SKELETON_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "skeleton")
+SKELETON_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "skeleton")
 
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
 # =========================================================
@@ -170,7 +170,7 @@ def validate_config(config):
     if the config is invalid.
     """
     schema_file = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "config.schema.json"
+        os.path.dirname(os.path.realpath(__file__)), "config.schema.json"
     )
     if not os.path.exists(schema_file):
         print(f"Warning: Schema file not found at {schema_file}, skipping validation.")
