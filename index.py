@@ -827,26 +827,24 @@ def process_rule(config, rule, save_only=False):
             print(f"  [{datetime.now()}] Error fetching data for params {params}: {e}")
             continue
 
-        # Apply validator if present
-        if validator:
-            before = len(items)
-            items = [item for item in items if evaluate_validator(validator, item)]
-            after = len(items)
-            if before != after:
-                print(
-                    f"  [{datetime.now()}] Validator filtered {before} -> {after} item(s)"
-                )
-
-        # Merge params into each item so templates can access them
-        # and re-derive ID if it references a param
+        # Merge params into each item and re-derive ID
         id_spec = definition["query"].get("id")
         for item in items:
             for k, v in params.items():
                 if k not in item:
                     item[k] = v
-            # Re-derive ID now that params are merged
             if id_spec and not item.get("id"):
                 item["id"] = extract_id(item, id_spec)
+
+        # Mark each item with validator result
+        for item in items:
+            item["_valid"] = evaluate_validator(validator, item) if validator else True
+
+        valid_count = sum(1 for i in items if i["_valid"])
+        if validator and valid_count != len(items):
+            print(
+                f"  [{datetime.now()}] Validator: {valid_count}/{len(items)} item(s) passed"
+            )
 
         all_items.extend(items)
 
@@ -857,15 +855,32 @@ def process_rule(config, rule, save_only=False):
         save_last_run(rule_name)
         return
 
-    # Load previous state
+    # Load previous state and build lookup by ID
     known_items = load_state(rule_name)
-    known_ids = {item["id"] for item in known_items if "id" in item}
+    known_by_id = {}
+    for item in known_items:
+        if "id" in item:
+            known_by_id[item["id"]] = item
 
-    # Find new items
-    new_items = [item for item in all_items if item.get("id") not in known_ids]
+    # Find items to notify about:
+    # - New items that pass the validator
+    # - Known items that previously failed the validator but now pass
+    #   (threshold crossing: e.g. price dropped below and rose back above)
+    notify_items = []
+    for item in all_items:
+        item_id = item.get("id")
+        if not item["_valid"]:
+            continue
+        prev = known_by_id.get(item_id)
+        if prev is None:
+            # New item that passes validator
+            notify_items.append(item)
+        elif not prev.get("_valid", True):
+            # Was invalid before, now valid — threshold crossed
+            notify_items.append(item)
 
-    if new_items:
-        print(f"  [{datetime.now()}] {len(new_items)} NEW item(s) detected!")
+    if notify_items:
+        print(f"  [{datetime.now()}] {len(notify_items)} item(s) to notify about!")
 
         # Use first input's params as the base template context
         base_params = inputs[0]["params"]
@@ -874,7 +889,7 @@ def process_rule(config, rule, save_only=False):
         template_str = load_template(template_path)
         if template_str:
             subject, body = render_email(
-                template_str, subject_template, new_items, base_params, definition
+                template_str, subject_template, notify_items, base_params, definition
             )
             if save_only:
                 save_email_to_file(rule_name, subject, body)
@@ -884,9 +899,9 @@ def process_rule(config, rule, save_only=False):
         else:
             print(f"  [{datetime.now()}] No template found, skipping email.")
     else:
-        print(f"  [{datetime.now()}] No new items (all already known).")
+        print(f"  [{datetime.now()}] No changes to notify about.")
 
-    # Save current state and last run time
+    # Save ALL items (including those that failed validator) with _valid status
     save_state(rule_name, all_items)
     save_last_run(rule_name)
     print(f"  [{datetime.now()}] State saved for '{rule_name}'")
