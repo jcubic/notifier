@@ -1,0 +1,401 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jcubic/notifier/config.schema.json",
+  "title": "Notifier Configuration",
+  "description": "Configuration file for the generic web scraper and email notifier. Defines SMTP settings, reusable scraping definitions, and rules that combine definitions with schedules, templates, and recipients. The config file is located at ~/.notifier/config.json.",
+  "type": "object",
+  "required": ["email", "defs", "rules"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional reference to this JSON Schema for editor validation."
+    },
+    "email": {
+      "type": "object",
+      "description": "Email delivery configuration.",
+      "required": ["server"],
+      "additionalProperties": false,
+      "properties": {
+        "server": {
+          "type": "object",
+          "description": "SMTP server credentials used to send notification emails.",
+          "required": ["host", "port", "email", "password"],
+          "additionalProperties": false,
+          "properties": {
+            "host": {
+              "type": "string",
+              "description": "SMTP server hostname.",
+              "examples": ["smtp.gmail.com", "mail.example.com"]
+            },
+            "port": {
+              "type": "integer",
+              "description": "SMTP server port. Typically 587 for STARTTLS or 465 for SSL.",
+              "default": 587,
+              "examples": [587, 465]
+            },
+            "email": {
+              "type": "string",
+              "format": "email",
+              "description": "Sender email address. Also used as the SMTP login username.",
+              "examples": ["you@example.com"]
+            },
+            "password": {
+              "type": "string",
+              "description": "SMTP login password or app-specific password."
+            }
+          }
+        }
+      }
+    },
+    "defs": {
+      "type": "object",
+      "description": "Reusable scraping definitions. Each key is a definition name referenced by rules via the 'ref' field. A definition describes how to fetch a URL, paginate, and extract structured data from HTML using CSS selectors.",
+      "additionalProperties": {
+        "$ref": "#/$defs/definition"
+      }
+    },
+    "rules": {
+      "type": "array",
+      "description": "List of rules to execute. Each rule references a definition and specifies scheduling, email template, recipient, and parameter values.",
+      "items": {
+        "$ref": "#/$defs/rule"
+      }
+    }
+  },
+  "$defs": {
+    "definition": {
+      "type": "object",
+      "description": "A scraping definition that describes how to fetch and parse data from a website.",
+      "required": ["url", "query"],
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri-template",
+          "description": "URL to fetch. Supports Mustache template variables from rule params, e.g. 'https://example.com/search?q={{query}}'. Variables are enclosed in double curly braces.",
+          "examples": [
+            "https://news.ycombinator.com",
+            "https://useme.com/pl/jobs/?query={{query}}"
+          ]
+        },
+        "params": {
+          "type": "array",
+          "description": "List of parameter names used in the URL template. These must be provided in each rule's 'params' object.",
+          "items": {
+            "type": "string"
+          },
+          "examples": [["query"], ["category", "page_size"]]
+        },
+        "pagination": {
+          "$ref": "#/$defs/pagination"
+        },
+        "query": {
+          "$ref": "#/$defs/query"
+        }
+      }
+    },
+    "pagination": {
+      "type": "object",
+      "description": "Controls how the scraper follows pagination to fetch multiple pages of results.",
+      "required": ["type", "selector"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["next_link", "numbered"],
+          "description": "Pagination strategy. 'next_link': follow a single 'Next' or 'More' link (e.g. Hacker News). 'numbered': find the active page button and follow the next numbered page link (e.g. useme.com)."
+        },
+        "selector": {
+          "type": "string",
+          "description": "CSS selector for the pagination element. For 'next_link': the 'next page' link (e.g. 'a.morelink'). For 'numbered': all page number links (e.g. '.pagination .pagination__page')."
+        },
+        "active_class": {
+          "type": "string",
+          "description": "Only for type 'numbered'. CSS class name on the currently active page link (e.g. 'pagination__page--active'). Used to find the next page."
+        },
+        "base_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Base URL for resolving relative href values in pagination links.",
+          "examples": ["https://news.ycombinator.com/", "https://useme.com/pl/jobs/"]
+        },
+        "max_pages": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1,
+          "description": "Maximum number of pages to fetch. Prevents unbounded crawling."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "type": { "const": "numbered" } },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["type", "selector", "active_class"]
+          }
+        }
+      ]
+    },
+    "query": {
+      "type": "object",
+      "description": "Defines how to extract structured data from the fetched HTML page.",
+      "required": ["type", "selector", "variables"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["list", "single"],
+          "description": "'list': select multiple elements (e.g. all job listings on a page). 'single': select one element (e.g. the latest blog post)."
+        },
+        "selector": {
+          "type": "string",
+          "description": "CSS selector for the item container(s). For 'list', this matches multiple elements. For 'single', it matches the first element.",
+          "examples": ["article.job", "tr.athing.submission", "article:first-child"]
+        },
+        "id": {
+          "$ref": "#/$defs/idSpec"
+        },
+        "filter": {
+          "$ref": "#/$defs/filter"
+        },
+        "variables": {
+          "type": "object",
+          "description": "Named variables to extract from each matched element. Each key becomes a variable name available in the email template (e.g. {{title}}, {{url}}).",
+          "additionalProperties": {
+            "$ref": "#/$defs/variable"
+          },
+          "minProperties": 1
+        }
+      }
+    },
+    "idSpec": {
+      "description": "Defines how to extract a unique identifier for each item, used for deduplication between runs. Two strategies are available.",
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "Extract ID from a variable value using an optional regex. Example: extract '12345' from URL '/jobs/slug,12345/' using regex ',(\\d+)/$'.",
+          "required": ["source"],
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "type": "string",
+              "description": "Name of a variable (from 'variables') or a param (from 'input'/'params') to use as the ID source. When using 'input', params are merged into items before ID extraction.",
+              "examples": ["url", "title", "symbol"]
+            },
+            "regex": {
+              "type": "string",
+              "description": "Optional regex pattern to extract the ID from the source value. If the regex has a capture group, group(1) is used. Otherwise the full match is used.",
+              "examples": [",(\\d+)/$", "id=(\\d+)", "(.+)"]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "description": "Read the ID directly from an HTML attribute on the matched element. Example: <tr id='47415919'> with name='id' gives '47415919'.",
+          "required": ["type", "name"],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "attribute",
+              "description": "Must be 'attribute' to read an HTML attribute from the element."
+            },
+            "name": {
+              "type": "string",
+              "description": "HTML attribute name to read from the matched element.",
+              "examples": ["id", "data-id"]
+            }
+          }
+        }
+      ]
+    },
+    "filter": {
+      "type": "object",
+      "description": "Exclude items that match a condition. The filter looks for a sub-element and skips the item if it has a specific CSS class.",
+      "required": ["selector"],
+      "additionalProperties": false,
+      "properties": {
+        "selector": {
+          "type": "string",
+          "description": "CSS selector for the element to check within each item.",
+          "examples": [".job__header-details--date", ".status"]
+        },
+        "exclude_class": {
+          "type": "string",
+          "description": "If the selected element has this CSS class, the item is excluded.",
+          "examples": ["job__header-details--closed", "status--inactive"]
+        }
+      }
+    },
+    "variable": {
+      "type": "object",
+      "description": "Defines how to extract a single named value from a matched element using a CSS selector.",
+      "required": ["selector", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "selector": {
+          "type": "string",
+          "description": "CSS selector relative to the item container (or its sibling if 'sibling' is true).",
+          "examples": [".titleline > a", "a.job__title-link", ".score"]
+        },
+        "value": {
+          "$ref": "#/$defs/valueSpec"
+        },
+        "default": {
+          "type": "string",
+          "description": "Fallback value if the selector doesn't match or the extracted value is empty.",
+          "examples": ["", "-", "0 points", "N/A"]
+        },
+        "sibling": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, the selector is applied to the next sibling element of the item container instead of within it. Useful when data is split across adjacent HTML elements (e.g. Hacker News stores the title in one <tr> and the score in the next <tr>)."
+        }
+      }
+    },
+    "valueSpec": {
+      "type": "object",
+      "description": "Specifies what to extract from the selected element.",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["text", "attribute"],
+          "description": "'text': extract the inner text content of the element (trimmed). 'attribute': extract the value of an HTML attribute."
+        },
+        "name": {
+          "type": "string",
+          "description": "Required when type is 'attribute'. The HTML attribute name to read.",
+          "examples": ["href", "src", "data-id", "title"]
+        },
+        "regex": {
+          "type": "string",
+          "description": "Optional regex applied to the extracted value. If the regex has a capture group, group(1) is used. Otherwise the full match is used. If the regex doesn't match, the default value is returned.",
+          "examples": ["^(/.*)", ",(\\d+)/$", "(\\d+\\.\\d+)"]
+        },
+        "prefix": {
+          "type": "string",
+          "description": "String prepended to the final value after regex extraction. Commonly used to turn relative URLs into absolute URLs.",
+          "examples": ["https://useme.com", "https://news.ycombinator.com/"]
+        },
+        "parse": {
+          "type": "string",
+          "enum": ["number"],
+          "description": "Parse the extracted string into a typed value. 'number': strips currency symbols, spaces, and percent signs, replaces comma with dot (European decimal format), and converts to float. Parsed values can be used in validator expressions."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "type": { "const": "attribute" } },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["type", "name"]
+          }
+        }
+      ]
+    },
+    "rule": {
+      "type": "object",
+      "description": "A rule that combines a scraping definition with scheduling, email delivery, and template rendering. Each rule produces a separate email notification when new items are detected.",
+      "required": ["ref", "name", "subject", "template", "email"],
+      "additionalProperties": false,
+      "properties": {
+        "ref": {
+          "type": "string",
+          "description": "Name of a definition in the 'defs' object to use for scraping.",
+          "examples": ["useme", "hackernews"]
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique rule identifier. Used as the filename for state storage (~/.notifier/data/<name>) and last-run tracking. Must contain only letters, numbers, hyphens, and underscores.",
+          "examples": ["seo", "hackernews", "wikipedia"]
+        },
+        "schedule": {
+          "type": "string",
+          "description": "Cron expression (5 fields: minute hour day-of-month month day-of-week) controlling when this rule executes. The script checks if the current time matches this expression. If omitted, the rule runs on every invocation.",
+          "examples": [
+            "0 8 * * *",
+            "0 */6 * * *",
+            "30 9 * * 1",
+            "*/30 * * * *",
+            "0 8,20 * * *"
+          ]
+        },
+        "subject": {
+          "type": "string",
+          "description": "Mustache template for the email subject line. Available variables: {{count}} (number of new items), {{now}} (current datetime), {{search_url}} (the fetched URL), all rule params (e.g. {{query}}), and all extracted variables.",
+          "examples": [
+            "[useme.com] {{count}} new offer(s) for '{{query}}'",
+            "Hacker News: {{count}} new stories"
+          ]
+        },
+        "template": {
+          "type": "string",
+          "description": "Path to the Mustache template file for the email body, relative to ~/.notifier/. The template has access to: {{count}}, {{now}}, {{search_url}}, {{#items}}...{{/items}} loop with {{index}} and all extracted variables, plus all rule params.",
+          "examples": ["./templates/useme", "./templates/hackernews"]
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Recipient email address for notifications from this rule.",
+          "examples": ["you@example.com"]
+        },
+        "params": {
+          "type": "object",
+          "description": "Parameter values for the definition's URL template. Keys must match the definition's 'params' list. Values are also available in email templates. Used when 'input' is not specified.",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "examples": [
+            { "query": "SEO" },
+            { "query": "Wikipedia" }
+          ]
+        },
+        "input": {
+          "description": "One or more input entries, each with its own params and optional validator. Use this to scrape multiple pages of the same type (e.g. multiple stock symbols) into a single rule. Can be a single object or an array. If omitted, 'params' is used directly.",
+          "oneOf": [
+            { "$ref": "#/$defs/inputEntry" },
+            {
+              "type": "array",
+              "items": { "$ref": "#/$defs/inputEntry" },
+              "minItems": 1
+            }
+          ]
+        }
+      }
+    },
+    "inputEntry": {
+      "type": "object",
+      "description": "A single input entry that provides parameters for one page fetch and an optional validator expression to filter results.",
+      "additionalProperties": false,
+      "properties": {
+        "params": {
+          "type": "object",
+          "description": "Parameter values for this input's URL. Overrides the rule-level 'params'. Also merged into extracted items so they're available in templates.",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "examples": [
+            { "symbol": "BIOMAXIMA" },
+            { "symbol": "AGORA" }
+          ]
+        },
+        "validator": {
+          "type": "string",
+          "description": "A numexpr expression with Mustache variable placeholders. The expression is evaluated after variable extraction. Items where the expression evaluates to false are excluded. Variables with 'parse: number' are available as floats. Use & for AND, | for OR, and parentheses for grouping.",
+          "examples": [
+            "{{price}} > 9.5",
+            "{{price}} > 10",
+            "({{price}} > 80) & ({{change_pct}} < 0)"
+          ]
+        }
+      }
+    }
+  }
+}
