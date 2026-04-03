@@ -423,8 +423,7 @@
     },
     "validator": {
       "type": "object",
-      "description": "Validates extracted items. All specified conditions within a single validator must pass (AND logic). In an array of validators, those with 'require: true' must ALL pass, and at least one non-required validator must also pass (OR logic among them).",
-      "additionalProperties": false,
+      "description": "Validates extracted items. Each validator must contain exactly one condition type: either 'test' or 'match', not both. In an array of validators, those with 'require: true' must ALL pass (AND logic), and at least one non-required validator must also pass (OR logic).",
       "properties": {
         "require": {
           "type": "boolean",
@@ -433,11 +432,12 @@
         },
         "test": {
           "type": "string",
-          "description": "A numexpr expression with Liquid variable placeholders. Variables with 'parse: number' are available as floats. The expression must evaluate to true for the item to be included. Use & for AND, | for OR, and parentheses for grouping.",
+          "description": "A numexpr expression with Liquid variable placeholders. Variables with 'parse: number' are available as floats. The expression must evaluate to true for the item to be included. Use & for AND, | for OR, and parentheses for grouping. Liquid filters are available, e.g. {{ date | date: \"%Y%m%d\" }} or {{ \"now\" | date: \"%u\" }}.",
           "examples": [
             "{{price}} > 9.5",
             "{{price}} > 10",
-            "({{price}} > 80) & ({{change_pct}} < 0)"
+            "({{price}} > 80) & ({{change_pct}} < 0)",
+            "{{ date | date: \"%Y%m%d\" }} == {{ \"now\" | date: \"%Y%m%d\" }}"
           ]
         },
         "match": {
@@ -451,7 +451,11 @@
             }
           ]
         }
-      }
+      },
+      "oneOf": [
+        { "required": ["test"], "not": { "required": ["match"] } },
+        { "required": ["match"], "not": { "required": ["test"] } }
+      ]
     },
     "matchCondition": {
       "type": "object",
