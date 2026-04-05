@@ -49,6 +49,12 @@ def log(msg):
     if verbose:
         print(msg)
 
+
+def info(msg):
+    """Print an essential message always (unless --quiet)."""
+    print(msg)
+
+
 # =========================================================
 
 
@@ -185,7 +191,10 @@ def validate_config(config):
         os.path.dirname(os.path.realpath(__file__)), "config.schema.json"
     )
     if not os.path.exists(schema_file):
-        print(f"Warning: Schema file not found at {schema_file}, skipping validation.", file=sys.stderr)
+        print(
+            f"Warning: Schema file not found at {schema_file}, skipping validation.",
+            file=sys.stderr,
+        )
         return
 
     with open(schema_file, "r", encoding="utf-8") as f:
@@ -662,7 +671,7 @@ def fetch_all_items(definition, params):
     url = render_url(definition["url"], params)
 
     while page_num <= max_pages:
-        log(f"  [{datetime.now()}] Fetching page {page_num}: {url}")
+        log(f"  Fetching page {page_num}: {url}")
         html, locale = fetch_page(url, user_agent=user_agent, is_xml=bs_parser == "xml")
 
         # Check expected structure on first page only
@@ -732,7 +741,11 @@ def render_email(template_str, subject_template, items, params, definition):
     context["search_url"] = search_url
 
     body = liquid.from_string(template_str).render(**context)
-    subject = liquid.from_string(subject_template).render(**context) if subject_template else ""
+    subject = (
+        liquid.from_string(subject_template).render(**context)
+        if subject_template
+        else ""
+    )
 
     return subject, body
 
@@ -753,7 +766,7 @@ def send_email(config, recipient, subject, body):
             server.starttls()
             server.login(sender, server_config["password"])
             server.send_message(msg)
-        log(f"  [{datetime.now()}] Email sent to {recipient}")
+        info(f"  Email sent to {recipient}")
     except Exception as e:
         print(f"Error: Failed to send email: {e}", file=sys.stderr)
 
@@ -768,7 +781,7 @@ def save_email_to_file(rule_name, subject, body):
         f.write(f"Date: {datetime.now()}\n")
         f.write("=" * 60 + "\n\n")
         f.write(body)
-    log(f"  [{datetime.now()}] Email saved to {email_file}")
+    log(f"  Email saved to {email_file}")
 
 
 def evaluate_single_validator(validator, item):
@@ -794,7 +807,10 @@ def evaluate_single_validator(validator, item):
             if not bool(numexpr.evaluate(rendered)):
                 return False
         except Exception as e:
-            print(f"Warning: Validator test failed for '{test_expr}': {e}", file=sys.stderr)
+            print(
+                f"Warning: Validator test failed for '{test_expr}': {e}",
+                file=sys.stderr,
+            )
             return False
 
     # Evaluate "match" condition(s) (regex match — AND logic)
@@ -813,7 +829,9 @@ def evaluate_single_validator(validator, item):
                 if not matched:
                     return False
             except Exception as e:
-                print(f"Warning: Validator match failed for '{m}': {e}", file=sys.stderr)
+                print(
+                    f"Warning: Validator match failed for '{m}': {e}", file=sys.stderr
+                )
                 return False
 
     return True
@@ -889,7 +907,7 @@ def process_rule(config, rule, save_only=False):
     template_path = rule.get("template", "")
     subject_template = rule.get("subject", "")
 
-    log(f"\n[{datetime.now()}] Processing rule: '{rule_name}' (ref: {ref})")
+    log(f"Processing rule: '{rule_name}' (ref: {ref})")
 
     # Look up definition
     definition = config["defs"].get(ref)
@@ -935,16 +953,14 @@ def process_rule(config, rule, save_only=False):
 
         valid_count = sum(1 for i in items if i["_valid"])
         if validator and valid_count != len(items):
-            log(
-                f"  [{datetime.now()}] Validator: {valid_count}/{len(items)} item(s) passed"
-            )
+            log(f"  Validator: {valid_count}/{len(items)} item(s) passed")
 
         all_items.extend(items)
 
-    log(f"  [{datetime.now()}] Found {len(all_items)} item(s) total.")
+    log(f"  Found {len(all_items)} item(s) total.")
 
     if not all_items:
-        log(f"  [{datetime.now()}] No items found. Nothing to do.")
+        log(f"  No items found. Nothing to do.")
         save_last_run(rule_name)
         return
 
@@ -973,7 +989,7 @@ def process_rule(config, rule, save_only=False):
             notify_items.append(item)
 
     if notify_items:
-        log(f"  [{datetime.now()}] {len(notify_items)} item(s) to notify about!")
+        info(f"[{rule_name}] {len(notify_items)} new item(s) — sending notification")
 
         # Use first input's params as the base template context
         base_params = inputs[0]["params"]
@@ -992,12 +1008,12 @@ def process_rule(config, rule, save_only=False):
         else:
             print(f"Warning: No template found, skipping email.", file=sys.stderr)
     else:
-        log(f"  [{datetime.now()}] No changes to notify about.")
+        log(f"[{rule_name}] No changes to notify about.")
 
     # Save ALL items (including those that failed validator) with _valid status
     save_state(rule_name, all_items)
     save_last_run(rule_name)
-    log(f"  [{datetime.now()}] State saved for '{rule_name}'")
+    log(f"  State saved for '{rule_name}'")
 
 
 def main():
@@ -1060,14 +1076,14 @@ def main():
         log("No rules to process.")
         return
 
-    log(f"[{datetime.now()}] Processing {len(rules)} rule(s)...")
+    log(f"Processing {len(rules)} rule(s)...")
 
     for rule in rules:
         rule_name = rule["name"]
 
         if not args.force and not args.dry_run and not should_run_now(rule):
             schedule = rule.get("schedule", "")
-            log(f"\n[{datetime.now()}] Skipping '{rule_name}' (schedule: {schedule})")
+            log(f"Skipping '{rule_name}' (schedule: {schedule})")
             continue
 
         if args.dry_run:
@@ -1076,7 +1092,7 @@ def main():
             if not definition:
                 print(f"Error: Definition '{ref}' not found", file=sys.stderr)
                 continue
-            print(f"\n[DRY RUN] Rule: '{rule_name}'")
+            info(f"[DRY RUN] Rule: '{rule_name}'")
             inputs = resolve_inputs(rule)
             all_items = []
             for input_entry in inputs:
@@ -1096,15 +1112,15 @@ def main():
                     all_items.extend(items)
                 except Exception as e:
                     print(f"  Error for params {params}: {e}", file=sys.stderr)
-            print(f"  Found {len(all_items)} item(s)")
+            info(f"  Found {len(all_items)} item(s)")
             for item in all_items[:3]:
-                print(f"    id={item.get('id', '?')}: {item}")
+                log(f"    id={item.get('id', '?')}: {item}")
             if len(all_items) > 3:
-                print(f"    ... and {len(all_items) - 3} more")
+                log(f"    ... and {len(all_items) - 3} more")
         else:
             process_rule(config, rule, save_only=args.save_email)
 
-    log(f"\n[{datetime.now()}] Done.")
+    log("Done.")
 
 
 if __name__ == "__main__":
