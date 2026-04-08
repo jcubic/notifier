@@ -8,6 +8,16 @@
     }
   },
   "defs": {
+    "commands": {
+      "fresh": {
+        "args": ["field", "seconds"],
+        "template": "{{ field | date: \"%s\" }} > {{ \"now\" | date: \"%s\" | minus: seconds }}"
+      },
+      "today": {
+        "args": ["field"],
+        "template": "{{ field | date: \"%Y%m%d\" }} == {{ \"now\" | date: \"%Y%m%d\" }}"
+      }
+    },
     "hackernews": {
       "url": "https://news.ycombinator.com",
       "pagination": {

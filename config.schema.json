@@ -50,7 +50,29 @@
     },
     "defs": {
       "type": "object",
-      "description": "Reusable scraping definitions. Each key is a definition name referenced by rules via the 'ref' field. A definition describes how to fetch a URL, paginate, and extract structured data from HTML using CSS selectors.",
+      "description": "Reusable scraping definitions. Each key is a definition name referenced by rules via the 'ref' field. A definition describes how to fetch a URL, paginate, and extract structured data from HTML using CSS selectors. The optional 'commands' key defines reusable Liquid tag commands.",
+      "properties": {
+        "commands": {
+          "type": "object",
+          "description": "Reusable Liquid tag commands. Each key becomes a custom {% tag %} usable in validator test/match expressions. Commands are templates rendered with positional arguments.",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["template"],
+            "additionalProperties": false,
+            "properties": {
+              "args": {
+                "type": "array",
+                "description": "Positional argument names. Values are passed in order when the tag is used: {% cmd arg1 arg2 %}. 'word' args resolve as variables from item context, numeric literals are passed as numbers.",
+                "items": { "type": "string" }
+              },
+              "template": {
+                "type": "string",
+                "description": "Liquid template string to render. Use argument names as variables: {{ field | date: \"%s\" }}."
+              }
+            }
+          }
+        }
+      },
       "additionalProperties": {
         "$ref": "#/$defs/definition"
       }
@@ -379,19 +401,19 @@
             { "query": "Wikipedia" }
           ]
         },
-        "input": {
-          "description": "One or more input entries, each with its own params and optional validator. Use this to scrape multiple pages of the same type (e.g. multiple stock symbols) into a single rule. Can be a single object or an array. If omitted, 'params' is used directly.",
-          "oneOf": [
-            { "$ref": "#/$defs/inputEntry" },
-            {
-              "type": "array",
-              "items": { "$ref": "#/$defs/inputEntry" },
-              "minItems": 1
-            }
-          ]
-        }
-      }
-    },
+         "input": {
+           "description": "One or more input entries, each with its own params and optional validator. Use this to scrape multiple pages of the same type (e.g. multiple stock symbols) into a single rule. Can be a single object or an array. If omitted, 'params' is used directly.",
+           "oneOf": [
+             { "$ref": "#/$defs/inputEntry" },
+             {
+               "type": "array",
+               "items": { "$ref": "#/$defs/inputEntry" },
+               "minItems": 1
+             }
+           ]
+         }
+       }
+     },
     "inputEntry": {
       "type": "object",
       "description": "A single input entry that provides parameters for one page fetch and an optional validator to filter results.",

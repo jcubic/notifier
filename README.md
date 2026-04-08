@@ -83,9 +83,9 @@ The config file (`~/.notifier/config.json`) has three sections:
 }
 ```
 
-### `defs` -- Reusable scraping definitions
+### `defs` -- Reusable scraping definitions and commands
 
-Each definition describes how to fetch and parse data from a website.
+Each definition describes how to fetch and parse data from a website. The optional `commands` key defines reusable Liquid tag commands (see [Commands](#commands)).
 
 ```json
 "hackernews": {
@@ -394,6 +394,80 @@ This is useful for combining a baseline filter with threshold alerts:
 
 The `require` validator acts as a gate — items must pass it before the OR thresholds are even considered.
 
+## Commands
+
+Commands are reusable Liquid tags defined in `defs.commands`. Each command becomes a custom `{% tag %}` that can be used in validator `test` and `match` expressions, replacing verbose Liquid expressions with short, readable tags.
+
+### Defining commands
+
+Commands are defined in the `commands` key under `defs`:
+
+```json
+"defs": {
+  "commands": {
+    "fresh": {
+      "args": ["field", "seconds"],
+      "template": "{{ field | date: \"%s\" }} > {{ \"now\" | date: \"%s\" | minus: seconds }}"
+    },
+    "today": {
+      "args": ["field"],
+      "template": "{{ field | date: \"%Y%m%d\" }} == {{ \"now\" | date: \"%Y%m%d\" }}"
+    }
+  },
+  ...
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `args` | no | Ordered list of argument names. Values are passed positionally when the tag is used. |
+| `template` | yes | Liquid template string rendered with bound arguments. Argument names are available as variables. |
+
+### Using commands
+
+Use commands as `{% name arg1 arg2 %}` in any validator `test` or `match` expression:
+
+```json
+"validator": {
+  "test": "{% fresh date 604800 %}"
+}
+```
+
+This is equivalent to writing the full Liquid expression:
+
+```json
+"test": "{{ date | date: \"%s\" }} > {{ \"now\" | date: \"%s\" | minus: 604800 }}"
+```
+
+Arguments are matched positionally to the `args` list in the command definition. Word arguments (like `date`) are resolved as variables from the item context. Numeric arguments (like `604800`) are passed as literal values.
+
+### Built-in commands in skeleton
+
+The skeleton config includes two commands:
+
+**`{% fresh <field> <seconds> %}`** — checks whether a date field is newer than a given number of seconds. Useful for filtering stale items from feeds that return non-deterministic results:
+
+```json
+"input": {
+  "validator": {
+    "test": "{% fresh date 604800 %}"
+  }
+}
+```
+
+This filters out any items where the `date` field is older than 7 days (604800 seconds).
+
+**`{% today <field> %}`** — checks whether a date field matches today's date:
+
+```json
+"input": {
+  "validator": {
+    "require": true,
+    "test": "{% today date %}"
+  }
+}
+```
+
 ## Pagination
 
 Two pagination types are supported:
@@ -665,6 +739,13 @@ You can use an AI coding agent (Claude Code, OpenCode, Aider, etc.) to configure
 > Add a rule to monitor Hacker News for "Ask HN" posts only. Use the existing
 > hackernews definition with a match validator that filters titles starting with
 > "Ask HN". Read the README.md and config.schema.json for reference.
+
+### Filter RSS feed with a command
+
+> Add a rule to monitor the r/scheme subreddit via its Atom feed. Use the
+> `{% fresh date 604800 %}` command to filter out posts older than 7 days,
+> since Reddit's feed sometimes returns stale posts. Read the README.md,
+> config.schema.json, and skeleton/config.json for reference.
 
 ## License
 

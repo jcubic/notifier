@@ -112,6 +112,9 @@ def send_error_email(subject, body):
 try:
     import requests
     from liquid import Environment as LiquidEnvironment
+    from liquid import Tag as LiquidTag
+    from liquid.ast import Node as LiquidNode
+    from liquid.token import TOKEN_TAG, TOKEN_EXPRESSION
     import numexpr
     from babel import Locale
     from babel.numbers import parse_decimal
@@ -296,6 +299,65 @@ def should_run_now(rule):
 
 
 liquid = LiquidEnvironment()
+
+
+class CommandNode(LiquidNode):
+    """Node that renders a command template with bound arguments."""
+
+    __slots__ = ("_env", "template_str", "arg_names", "raw_args")
+
+    def __init__(self, token, env, template_str, arg_names, raw_args):
+        super().__init__(token)
+        self._env = env
+        self.template_str = template_str
+        self.arg_names = arg_names
+        self.raw_args = raw_args
+
+    def render_to_output(self, context, buffer):
+        kwargs = {}
+        for name, (kind, raw) in zip(self.arg_names, self.raw_args):
+            if kind == "word":
+                kwargs[name] = context.resolve(raw, default=raw)
+            elif kind == "integer":
+                kwargs[name] = int(raw)
+            elif kind == "float":
+                kwargs[name] = float(raw)
+            else:
+                kwargs[name] = raw
+        tpl = self._env.from_string(self.template_str)
+        result = tpl.render(**kwargs)
+        buffer.write(result)
+        return len(result)
+
+
+def make_command_tag(cmd_name, template_str, arg_names):
+    """Create a Liquid Tag subclass for a named command."""
+
+    class DynamicCommandTag(LiquidTag):
+        name = cmd_name
+        block = False
+
+        def parse(self, stream):
+            token = stream.eat(TOKEN_TAG)
+            raw_args = []
+            if stream.current.kind == TOKEN_EXPRESSION:
+                inner = stream.into_inner(tag=token)
+                while inner.current != inner.eof:
+                    t = inner.next()
+                    raw_args.append((t.kind, t.value))
+            return CommandNode(token, self.env, template_str, arg_names, raw_args)
+
+    return DynamicCommandTag
+
+
+def setup_liquid(config):
+    """Register custom command tags from config into the Liquid environment."""
+    global liquid
+    commands = config.get("defs", {}).get("commands", {})
+    for cmd_name, cmd_def in commands.items():
+        template_str = cmd_def["template"]
+        arg_names = cmd_def.get("args", [])
+        liquid.add_tag(make_command_tag(cmd_name, template_str, arg_names))
 
 
 def render_url(url_template, params):
@@ -1066,10 +1128,12 @@ def main():
 
     if args.validate:
         validate_config(config)
+        setup_liquid(config)
         print(f"Config at {CONFIG_FILE} is valid.")
         return
 
     validate_config(config)
+    setup_liquid(config)
 
     rules = config.get("rules", [])
     if not rules:
