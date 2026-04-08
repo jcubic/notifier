@@ -171,7 +171,8 @@ Each variable in `query.variables` defines how to extract a value from a matched
 |-------|-------------|
 | `regex` | Extract a capture group from the raw value. Uses group(1) if available. |
 | `prefix` | String prepended to the final value. Useful for turning relative URLs into absolute. |
-| `parse` | Convert the extracted string to a typed value. `"number"`: plain numeric parsing for integers and floats, strips commas as thousands separators (e.g. `"1,234"` -> `1234`, `"3.14"` -> `3.14`). `"money"`: locale-aware currency parsing via [babel](https://babel.pocoo.org/), auto-detects page language from `<html lang>` or `Content-Language` header, strips currency symbols and percent signs, handles US (`$70,528.40`), European (`11,8000 zł`), and mixed (`11.800,50 €`) formats. Parsed values are used by validators. |
+| `parse` | Convert the extracted string to a typed value. `"number"`: plain numeric parsing for integers and floats, strips commas as thousands separators (e.g. `"1,234"` -> `1234`, `"3.14"` -> `3.14`). `"money"`: locale-aware currency parsing via [babel](https://babel.pocoo.org/), auto-detects page language from `<html lang>` or `Content-Language` header, strips currency symbols and percent signs, handles US (`$70,528.40`), European (`11,8000 zł`), and mixed (`11.800,50 €`) formats. `"list"`: split the value into a list using the `delimiter` regex (default `\s*,\s*`), use `{% for x in item.field %}` in templates. Parsed values are used by validators. |
+| `delimiter` | Regex pattern used to split the value when `parse` is `"list"`. Defaults to `\s*,\s*` (comma with optional surrounding whitespace). |
 
 ### Optional variable fields
 
@@ -179,6 +180,13 @@ Each variable in `query.variables` defines how to extract a value from a matched
 |-------|-------------|
 | `default` | Fallback value if the selector doesn't match or the value is empty |
 | `sibling` | When `true`, search the next sibling element instead of within the matched element. Needed when data is split across adjacent HTML elements (e.g. Hacker News stores title and score in separate `<tr>` rows). |
+| `collect` | When `true`, collect ALL matching elements (using `select()` instead of `select_one()`). Returns a list that can be iterated in templates with `{% for skill in item.skills %}`. Useful for extracting lists of tags, skills, or categories from repeated elements. |
+
+### Special selectors
+
+| Selector | Description |
+|----------|-------------|
+| `:self` | References the container element itself instead of searching for a child. Useful when the container is an `<a>` tag and you need its `href` attribute. |
 
 ### Example with all options
 
@@ -195,6 +203,39 @@ Each variable in `query.variables` defines how to extract a value from a matched
 ```
 
 This selects the `href` attribute from `a.job__title-link`, extracts the path with a regex, then prepends the domain.
+
+### Collecting multiple values
+
+When an item contains repeated elements (e.g. skill tags, categories), use `collect: true` to extract all matches as a list:
+
+```json
+"skills": {
+  "selector": ".skill-tag",
+  "value": { "type": "text" },
+  "collect": true
+}
+```
+
+This finds all `.skill-tag` elements inside the item container and returns a list like `["TypeScript", "React", "Node.js"]`. Use a loop in the template:
+
+```liquid
+{% for skill in item.skills %}{{ skill }}{% unless forloop.last %}, {% endunless %}{% endfor %}
+```
+
+### Self-referencing the container
+
+When the container element itself holds the data you need (e.g. an `<a>` tag with an `href`), use `:self`:
+
+```json
+"url": {
+  "selector": ":self",
+  "value": {
+    "type": "attribute",
+    "name": "href",
+    "prefix": "https://example.com"
+  }
+}
+```
 
 ## Item identity (deduplication)
 

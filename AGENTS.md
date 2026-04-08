@@ -39,6 +39,8 @@ A generic, config-driven web scraper that monitors websites for changes and send
    - `query.variables` — each variable: `selector` + `value` (`type: "text"` or `type: "attribute"` with `name`)
    - Optional: `pagination`, `filter`, `id`, `value.parse: "number"|"money"`, `value.regex`, `value.prefix`
    - Optional: `sibling: true` on a variable to search next sibling element
+   - Optional: `collect: true` on a variable to extract ALL matching elements as a list (use `{% for %}` in templates)
+   - Optional: `selector: ":self"` to reference the container element itself (e.g. when container is `<a>` and you need its `href`)
 3. Add a rule to `rules`:
    - `ref` — definition name
    - `name` — unique, used as state filename

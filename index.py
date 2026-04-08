@@ -446,6 +446,9 @@ def extract_value(element, value_spec, default=None, locale=None):
         raw = parse_number(raw)
     elif parse == "money":
         raw = parse_money(raw, locale=locale)
+    elif parse == "list":
+        delimiter = value_spec.get("delimiter", r"\s*,\s*")
+        raw = [s for s in re.split(delimiter, raw) if s]
 
     return raw
 
@@ -585,6 +588,17 @@ def extract_variables(element, variables_spec, locale=None):
           "selector": ".score",
           "value": { "type": "text" }
         }
+
+    Supports an optional "collect" key. When true, all elements matching
+    the selector are collected, each value is extracted, and they are
+    joined with the "separator" string (default: ", "). Example:
+
+        "skills": {
+          "selector": ".skill-tag",
+          "value": { "type": "text" },
+          "collect": true,
+          "separator": ", "
+        }
     """
     data = {}
     for var_name, var_spec in variables_spec.items():
@@ -604,10 +618,30 @@ def extract_variables(element, variables_spec, locale=None):
             data[var_name] = var_spec.get("default", "")
             continue
 
-        sub_element = search_root.select_one(var_spec["selector"])
         default = var_spec.get("default")
-        value = extract_value(sub_element, var_spec["value"], default, locale=locale)
-        data[var_name] = value if value is not None else ""
+        selector = var_spec["selector"]
+
+        if var_spec.get("collect"):
+            # Collect all matching elements into a list
+            sub_elements = search_root.select(selector)
+            values = []
+            for sub_el in sub_elements:
+                val = extract_value(sub_el, var_spec["value"], locale=locale)
+                if val is not None and val != "":
+                    values.append(str(val))
+            data[var_name] = values
+        elif selector == ":self":
+            # Special selector: use the container element itself
+            value = extract_value(
+                search_root, var_spec["value"], default, locale=locale
+            )
+            data[var_name] = value if value is not None else ""
+        else:
+            sub_element = search_root.select_one(var_spec["selector"])
+            value = extract_value(
+                sub_element, var_spec["value"], default, locale=locale
+            )
+            data[var_name] = value if value is not None else ""
     return data
 
 
