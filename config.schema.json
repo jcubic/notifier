@@ -271,14 +271,14 @@
     },
     "variable": {
       "type": "object",
-      "description": "Defines how to extract a named value from a matched element using a CSS selector. By default extracts from the first matching element. Set 'collect' to true to extract from ALL matching elements and join them.",
+      "description": "Defines how to extract a named value from a matched element using a CSS selector. By default extracts from the first matching element. Set 'collect' to true to extract from ALL matching elements and join them. When combined with parse 'json' and a query, extracts structured data from JSON content (e.g. Next.js __NEXT_DATA__).",
       "required": ["selector", "value"],
       "additionalProperties": false,
       "properties": {
         "selector": {
           "type": "string",
-          "description": "CSS selector relative to the item container (or its sibling if 'sibling' is true). Use the special value ':self' to reference the container element itself (useful when the container is an <a> tag and you need its href).",
-          "examples": [".titleline > a", "a.job__title-link", ".score", ".skill-tag", ":self"]
+          "description": "CSS selector relative to the item container (or its sibling if 'sibling' is true). Use the special value ':self' to reference the container element itself. For JSON extraction, use a global selector like 'script#__NEXT_DATA__'.",
+          "examples": [".titleline > a", "a.job__title-link", ".score", ".skill-tag", ":self", "script#__NEXT_DATA__"]
         },
         "value": {
           "$ref": "#/$defs/valueSpec"
@@ -328,14 +328,17 @@
         },
         "parse": {
           "type": "string",
-          "enum": ["number", "money", "list"],
-          "description": "Parse the extracted string into a typed value. 'number': plain numeric parsing for integers and floats (strips commas as thousands separators, e.g. '1,234' -> 1234.0, '3.14' -> 3.14). 'money': locale-aware currency parsing via babel. Auto-detects page language from <html lang> or Content-Language header. Strips currency symbols and percent signs. Handles US format ($70,528.40), European format (11,8000 zl), and mixed formats. 'list': split the value into a list using 'delimiter' regex (default: '\\s*,\\s*'). Use {% for x in item.field %}...{% endfor %} in templates. Parsed values can be used in validator expressions."
+          "enum": ["number", "money", "list", "json"],
+          "description": "Parse the extracted string into a typed value. 'number': plain numeric parsing. 'money': locale-aware currency parsing via babel. 'list': split into a list using 'delimiter' regex. 'json': parse as JSON, then optionally query with JMESPath via the 'query' field. Useful for extracting structured data from <script> tags (e.g. Next.js __NEXT_DATA__) or JSON in HTML attributes."
         },
         "delimiter": {
           "type": "string",
           "description": "Regex pattern used to split the value when parse is 'list'. Defaults to '\\s*,\\s*' (comma with optional surrounding whitespace).",
           "default": "\\s*,\\s*",
           "examples": ["\\s*,\\s*", "\\s*\\|\\s*", "\\s+", "\\s*;\\s*"]
+        },
+        "query": {
+          "$ref": "#/$defs/jsonQuery"
         }
       },
       "allOf": [
@@ -349,6 +352,47 @@
           }
         }
       ]
+    },
+    "jsonQuery": {
+      "type": "object",
+      "description": "Defines how to extract variables from parsed JSON using JMESPath. Used when parse is 'json'. Mirrors the HTML query structure with type (single/list), a JMESPath path, and named variables.",
+      "required": ["type", "variables"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["list", "single"],
+          "description": "'list': the JMESPath result is an array, extract variables from each entry. Returns a list of objects. 'single': extract variables from one result object. Returns a flat object."
+        },
+        "path": {
+          "type": "string",
+          "description": "JMESPath expression to navigate the parsed JSON. Supports Liquid variables (e.g. `{{id}}`) rendered against the current item's data before querying. If omitted, the root JSON object is used. See https://jmespath.org/ for syntax.",
+          "examples": [
+            "props.pageProps.data.items[?id == `{{id}}`]",
+            "props.pageProps.dehydratedState.queries[0].state.data.groupedOffers[?offers[0].partitionId == `{{id}}`].offers[]"
+          ]
+        },
+        "variables": {
+          "type": "object",
+          "description": "Named variables to extract from each JSON result entry. Each key becomes accessible in templates (e.g. {{ loc.city }}).",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonVariable"
+          },
+          "minProperties": 1
+        }
+      }
+    },
+    "jsonVariable": {
+      "type": "object",
+      "description": "Defines how to extract a value from a JSON entry using a JMESPath sub-expression.",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "JMESPath expression to extract a value from the JSON entry. If omitted, the entry itself is used.",
+          "examples": ["displayWorkplace", "offerAbsoluteUri", "name"]
+        }
+      }
     },
     "rule": {
       "type": "object",

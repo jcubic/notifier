@@ -111,6 +111,7 @@ def send_error_email(subject, body):
 # === Third-party imports ===
 try:
     import requests
+    import jmespath
     from liquid import Environment as LiquidEnvironment
     from liquid import Tag as LiquidTag
     from liquid.ast import Node as LiquidNode
@@ -449,8 +450,69 @@ def extract_value(element, value_spec, default=None, locale=None):
     elif parse == "list":
         delimiter = value_spec.get("delimiter", r"\s*,\s*")
         raw = [s for s in re.split(delimiter, raw) if s]
+    elif parse == "json":
+        try:
+            raw = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return default if default is not None else {}
 
     return raw
+
+
+_json_cache = {}
+
+
+def query_json(json_data, query_spec, item_data):
+    """Query parsed JSON data using JMESPath and extract variables.
+
+    query_spec: {
+      "type": "list" | "single",
+      "path": "data.items[?id == `{{id}}`]",  # JMESPath (Liquid-rendered)
+      "variables": {
+        "city": { "path": "displayWorkplace" },
+        "url":  { "path": "offerAbsoluteUri" }
+      }
+    }
+
+    Returns a list of dicts (type=list) or a flat dict (type=single).
+    If path is omitted, the root JSON object is used.
+    """
+    query_type = query_spec.get("type", "single")
+    empty = [] if query_type == "list" else {}
+
+    # Navigate with JMESPath (Liquid-rendered for variable interpolation)
+    jmespath_expr = query_spec.get("path")
+    if jmespath_expr:
+        rendered_path = liquid.from_string(jmespath_expr).render(**item_data)
+        result = jmespath.search(rendered_path, json_data)
+    else:
+        result = json_data
+
+    if result is None:
+        return empty
+
+    variables = query_spec.get("variables", {})
+
+    def extract_from_entry(entry):
+        data = {}
+        for var_name, var_spec in variables.items():
+            var_path = var_spec.get("path")
+            if var_path:
+                data[var_name] = jmespath.search(var_path, entry)
+            else:
+                data[var_name] = entry
+            if data[var_name] is None:
+                data[var_name] = ""
+        return data
+
+    if query_type == "list":
+        if not isinstance(result, list):
+            result = [result]
+        return [extract_from_entry(entry) for entry in result]
+    else:
+        if isinstance(result, list):
+            result = result[0] if result else {}
+        return extract_from_entry(result)
 
 
 def parse_number(value):
@@ -602,6 +664,10 @@ def extract_variables(element, variables_spec, locale=None):
     """
     data = {}
     for var_name, var_spec in variables_spec.items():
+        # json+query variables need item ID, extracted separately in parse_items()
+        value = var_spec.get("value", {})
+        if value.get("parse") == "json" and value.get("query"):
+            continue
         search_root = element
         if var_spec.get("sibling"):
             # Walk through next siblings until we find a non-spacer element
@@ -651,12 +717,40 @@ def parse_items(html, query_spec, locale=None, bs_parser="html.parser"):
 
     Returns a list of dicts with extracted variables + 'id' field.
     """
+    _json_cache.clear()
     soup = BeautifulSoup(html, bs_parser)
     query_type = query_spec["type"]
     selector = query_spec["selector"]
     variables = query_spec.get("variables", {})
     filter_spec = query_spec.get("filter")
     id_spec = query_spec.get("id")
+
+    # Identify json+query variables (need item ID for JMESPath Liquid rendering)
+    json_query_vars = {
+        name: spec
+        for name, spec in variables.items()
+        if spec.get("value", {}).get("parse") == "json"
+        and spec.get("value", {}).get("query")
+    }
+
+    def extract_json_query_vars(data, element):
+        """Extract json+query variables using cached parsed JSON."""
+        for var_name, var_spec in json_query_vars.items():
+            value_spec = var_spec["value"]
+            query_spec_json = value_spec["query"]
+            sel = var_spec["selector"]
+
+            # Cache parsed JSON per selector to avoid re-parsing per item
+            cache_key = (id(soup), sel)
+            if cache_key not in _json_cache:
+                json_el = soup.select_one(sel)
+                raw = extract_value(json_el, value_spec, locale=locale)
+                if not isinstance(raw, dict) and not isinstance(raw, list):
+                    data[var_name] = [] if query_spec_json.get("type") == "list" else {}
+                    continue
+                _json_cache[cache_key] = raw
+            json_data = _json_cache[cache_key]
+            data[var_name] = query_json(json_data, query_spec_json, data)
 
     if query_type == "single":
         element = soup.select_one(selector)
@@ -666,6 +760,8 @@ def parse_items(html, query_spec, locale=None, bs_parser="html.parser"):
             return []
         data = extract_variables(element, variables, locale=locale)
         data["id"] = extract_id(data, id_spec, element)
+        if json_query_vars:
+            extract_json_query_vars(data, element)
         return [data]
 
     elif query_type == "list":
@@ -676,6 +772,8 @@ def parse_items(html, query_spec, locale=None, bs_parser="html.parser"):
                 continue
             data = extract_variables(el, variables, locale=locale)
             data["id"] = extract_id(data, id_spec, el)
+            if json_query_vars:
+                extract_json_query_vars(data, el)
             items.append(data)
         return items
 

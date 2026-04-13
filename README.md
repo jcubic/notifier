@@ -9,7 +9,7 @@ Designed to run as a cron job. Each rule has its own schedule (cron expression),
 ### Dependencies
 
 ```bash
-pip install requests beautifulsoup4 lxml python-liquid croniter numexpr jsonschema babel
+pip install -r requirements.txt
 ```
 
 ### First run
@@ -171,8 +171,9 @@ Each variable in `query.variables` defines how to extract a value from a matched
 |-------|-------------|
 | `regex` | Extract a capture group from the raw value. Uses group(1) if available. |
 | `prefix` | String prepended to the final value. Useful for turning relative URLs into absolute. |
-| `parse` | Convert the extracted string to a typed value. `"number"`: plain numeric parsing for integers and floats, strips commas as thousands separators (e.g. `"1,234"` -> `1234`, `"3.14"` -> `3.14`). `"money"`: locale-aware currency parsing via [babel](https://babel.pocoo.org/), auto-detects page language from `<html lang>` or `Content-Language` header, strips currency symbols and percent signs, handles US (`$70,528.40`), European (`11,8000 zł`), and mixed (`11.800,50 €`) formats. `"list"`: split the value into a list using the `delimiter` regex (default `\s*,\s*`), use `{% for x in item.field %}` in templates. Parsed values are used by validators. |
+| `parse` | Convert the extracted string to a typed value. `"number"`: plain numeric parsing for integers and floats, strips commas as thousands separators (e.g. `"1,234"` -> `1234`, `"3.14"` -> `3.14`). `"money"`: locale-aware currency parsing via [babel](https://babel.pocoo.org/), auto-detects page language from `<html lang>` or `Content-Language` header, strips currency symbols and percent signs, handles US (`$70,528.40`), European (`11,8000 zł`), and mixed (`11.800,50 €`) formats. `"list"`: split the value into a list using the `delimiter` regex (default `\s*,\s*`), use `{% for x in item.field %}` in templates. `"json"`: parse the value as JSON, then optionally extract structured data with `query` (see [JSON extraction](#json-extraction)). Parsed values are used by validators. |
 | `delimiter` | Regex pattern used to split the value when `parse` is `"list"`. Defaults to `\s*,\s*` (comma with optional surrounding whitespace). |
+| `query` | Only for `parse: "json"`. Defines how to navigate and extract variables from the parsed JSON using [JMESPath](https://jmespath.org/) (see [JSON extraction](#json-extraction)). |
 
 ### Optional variable fields
 
@@ -236,6 +237,124 @@ When the container element itself holds the data you need (e.g. an `<a>` tag wit
   }
 }
 ```
+
+## JSON extraction
+
+Some websites embed structured data as JSON inside `<script>` tags (e.g. Next.js apps use `<script id="__NEXT_DATA__">`). When the HTML elements don't contain all the data you need, you can extract it from the embedded JSON instead.
+
+Use `parse: "json"` combined with a `query` to navigate the JSON structure using [JMESPath](https://jmespath.org/) expressions.
+
+### Basic structure
+
+```json
+"locations": {
+  "selector": "script#__NEXT_DATA__",
+  "value": {
+    "type": "text",
+    "parse": "json",
+    "query": {
+      "type": "list",
+      "path": "props.pageProps.data.items[?id == `{{id}}`].offers[]",
+      "variables": {
+        "city": { "path": "displayWorkplace" },
+        "url": { "path": "offerAbsoluteUri" }
+      }
+    }
+  }
+}
+```
+
+**How it works:**
+
+1. `selector` selects the element containing JSON (e.g. a `<script>` tag) — standard CSS selector
+2. `type: "text"` extracts the text content — same as any other variable
+3. `parse: "json"` parses the text as a JSON object
+4. `query` navigates the parsed JSON and extracts variables:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `type` | yes | `"list"` (returns array of objects) or `"single"` (returns one object) |
+| `path` | no | [JMESPath](https://jmespath.org/) expression to navigate the JSON. Supports Liquid variables (`{{id}}`, `{{name}}`, etc.) rendered against the current item's data. If omitted, the root JSON object is used. |
+| `variables` | yes | Named fields to extract from each result. Each has a `path` (JMESPath sub-expression). |
+
+The `path` supports Liquid variable interpolation, so you can match JSON entries to the current HTML item. For example, `{{id}}` is replaced with the item's extracted ID before the JMESPath query runs.
+
+### JMESPath syntax
+
+JMESPath is a query language for JSON. Common patterns:
+
+| Expression | Description |
+|------------|-------------|
+| `foo.bar.baz` | Navigate nested objects |
+| `items[0]` | Array index |
+| `items[*].name` | Get `name` from all array entries |
+| `items[?id == \`123\`]` | Filter: entries where `id` equals `123` |
+| `items[?score > \`50\`]` | Filter: entries where `score` > 50 |
+| `items[].offers[]` | Flatten nested arrays |
+
+Note: literal values in JMESPath filters use backticks (`` ` ``), not quotes. See the [JMESPath tutorial](https://jmespath.org/tutorial.html) for full syntax.
+
+### Template usage
+
+When `query.type` is `"list"`, the variable is a list of objects accessible in templates:
+
+```liquid
+{% for loc in item.locations %}
+* {{ loc.city }}: {{ loc.url }}
+{% endfor %}
+```
+
+When `query.type` is `"single"`, the variable is a flat object:
+
+```liquid
+{{ item.metadata.author }} - {{ item.metadata.date }}
+```
+
+### Works with attributes too
+
+JSON can also appear in HTML attributes. Use `type: "attribute"` with `parse: "json"`:
+
+```json
+"config": {
+  "selector": "[data-config]",
+  "value": {
+    "type": "attribute",
+    "name": "data-config",
+    "parse": "json",
+    "query": {
+      "type": "single",
+      "variables": {
+        "status": { "path": "status" },
+        "count": { "path": "meta.count" }
+      }
+    }
+  }
+}
+```
+
+### Example: Next.js multi-location job offers
+
+Pracuj.pl (a Next.js app) lists job offers with multi-location variants. The HTML card only shows the title, but the city-specific URLs are in `__NEXT_DATA__`:
+
+```json
+"url_list": {
+  "selector": "script#__NEXT_DATA__",
+  "value": {
+    "type": "text",
+    "parse": "json",
+    "query": {
+      "type": "list",
+      "path": "props.pageProps.dehydratedState.queries[0].state.data.groupedOffers[?offers[0].partitionId == `{{id}}`].offers[]",
+      "variables": {
+        "city": { "path": "displayWorkplace" },
+        "url": { "path": "offerAbsoluteUri" }
+      }
+    }
+  }
+}
+```
+
+The `{{id}}` in the path is the item's ID extracted from the HTML (`data-test-offerid` attribute). JMESPath filters the `groupedOffers` array to find the matching entry, then flattens its `offers[]` sub-array. Each offer's `displayWorkplace` and `offerAbsoluteUri` are extracted as `city` and `url`.
 
 ## Item identity (deduplication)
 
@@ -787,6 +906,14 @@ You can use an AI coding agent (Claude Code, OpenCode, Aider, etc.) to configure
 > `{% fresh date 604800 %}` command to filter out posts older than 7 days,
 > since Reddit's feed sometimes returns stale posts. Read the README.md,
 > config.schema.json, and skeleton/config.json for reference.
+
+### Extract data from Next.js JSON (embedded JSON)
+
+> Add a rule to monitor job offers on https://it.pracuj.pl. The site is a
+> Next.js app — some data (like city-specific URLs for multi-location offers)
+> is only in the `<script id="__NEXT_DATA__">` JSON, not in the HTML. Use
+> `parse: "json"` with a JMESPath query to extract city and URL from the
+> embedded JSON. Read the README.md and config.schema.json for reference.
 
 ## License
 

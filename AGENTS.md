@@ -65,7 +65,7 @@ A generic, config-driven web scraper that monitors websites for changes and send
 
 ## Dependencies
 
-Python 3.12+ with: `requests`, `beautifulsoup4`, `lxml`, `python-liquid`, `croniter`, `numexpr`, `jsonschema`, `babel`
+Python 3.12+ with: `requests`, `beautifulsoup4`, `lxml`, `python-liquid`, `croniter`, `numexpr`, `jsonschema`, `babel`, `jmespath`
 
 Installed for both pyenv Python (3.12) and system Python (3.14) at `/usr/bin/python3`.
 
