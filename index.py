@@ -186,7 +186,8 @@ def load_config():
 
 def validate_config(config):
     """
-    Validate config against the JSON Schema.
+    Validate config against the JSON Schema, then check cron expressions,
+    CSS selectors, and JMESPath paths for syntax errors.
 
     Sends an error email listing all validation errors and exits
     if the config is invalid.
@@ -207,13 +208,28 @@ def validate_config(config):
     validator = Draft202012Validator(schema)
     errors = list(validator.iter_errors(config))
 
-    if not errors:
-        return
+    if errors:
+        _report_validation_errors(errors)
 
+    # Additional syntax checks beyond JSON Schema
+    syntax_errors = []
+    syntax_errors.extend(_validate_cron_expressions(config))
+    syntax_errors.extend(_validate_css_selectors(config))
+    syntax_errors.extend(_validate_jmespath_paths(config))
+
+    if syntax_errors:
+        _report_validation_errors(syntax_errors)
+
+
+def _report_validation_errors(errors):
+    """Format and report validation errors, then exit."""
     lines = [f"Config validation failed with {len(errors)} error(s):\n"]
     for i, err in enumerate(errors, 1):
-        path = ".".join(str(p) for p in err.absolute_path) or "(root)"
-        lines.append(f"  {i}. [{path}] {err.message}")
+        if isinstance(err, str):
+            lines.append(f"  {i}. {err}")
+        else:
+            path = ".".join(str(p) for p in err.absolute_path) or "(root)"
+            lines.append(f"  {i}. [{path}] {err.message}")
 
     msg = "\n".join(lines)
     print(msg, file=sys.stderr)
@@ -222,6 +238,98 @@ def validate_config(config):
         f"The notifier config at {CONFIG_FILE} is invalid.\n\n{msg}",
     )
     sys.exit(1)
+
+
+def _validate_cron_expressions(config):
+    """Check all schedule cron expressions for syntax errors."""
+    errors = []
+    for rule in config.get("rules", []):
+        schedule = rule.get("schedule")
+        if not schedule:
+            continue
+        expressions = schedule if isinstance(schedule, list) else [schedule]
+        for expr in expressions:
+            if not croniter.is_valid(expr):
+                name = rule.get("name", "?")
+                errors.append(
+                    f"[rules.{name}.schedule] Invalid cron expression: '{expr}'"
+                )
+    return errors
+
+
+def _validate_css_selectors(config):
+    """Check all CSS selectors for syntax errors."""
+    errors = []
+    soup = BeautifulSoup("<div></div>", "html.parser")
+
+    def check_selector(selector, path):
+        try:
+            soup.select(selector)
+        except Exception as e:
+            errors.append(f"[{path}] Invalid CSS selector '{selector}': {e}")
+
+    for def_name, definition in config.get("defs", {}).items():
+        if def_name == "commands":
+            continue
+        query = definition.get("query", {})
+        if query.get("selector"):
+            check_selector(query["selector"], f"defs.{def_name}.query.selector")
+        for expect_sel in query.get("expect", []):
+            check_selector(expect_sel, f"defs.{def_name}.query.expect")
+        filter_spec = query.get("filter", {})
+        if filter_spec.get("selector"):
+            check_selector(
+                filter_spec["selector"], f"defs.{def_name}.query.filter.selector"
+            )
+        pagination = definition.get("pagination", {})
+        if pagination.get("selector"):
+            check_selector(
+                pagination["selector"], f"defs.{def_name}.pagination.selector"
+            )
+        for var_name, var_spec in query.get("variables", {}).items():
+            sel = var_spec.get("selector")
+            if sel and sel != ":self":
+                check_selector(
+                    sel, f"defs.{def_name}.query.variables.{var_name}.selector"
+                )
+    return errors
+
+
+def _validate_jmespath_paths(config):
+    """Check all JMESPath path expressions for syntax errors."""
+    errors = []
+    for def_name, definition in config.get("defs", {}).items():
+        if def_name == "commands":
+            continue
+        query = definition.get("query", {})
+        for var_name, var_spec in query.get("variables", {}).items():
+            value = var_spec.get("value", {})
+            if value.get("parse") != "json":
+                continue
+            json_query = value.get("query", {})
+            path = json_query.get("path")
+            if path:
+                # Strip Liquid variables before checking JMESPath syntax
+                test_path = re.sub(r"\{\{[^}]*\}\}", "0", path)
+                try:
+                    jmespath.compile(test_path)
+                except jmespath.exceptions.ParseError as e:
+                    errors.append(
+                        f"[defs.{def_name}.query.variables.{var_name}"
+                        f".value.query.path] Invalid JMESPath: {e}"
+                    )
+            for sub_var, sub_spec in json_query.get("variables", {}).items():
+                sub_path = sub_spec.get("path")
+                if sub_path:
+                    try:
+                        jmespath.compile(sub_path)
+                    except jmespath.exceptions.ParseError as e:
+                        errors.append(
+                            f"[defs.{def_name}.query.variables.{var_name}"
+                            f".value.query.variables.{sub_var}.path] "
+                            f"Invalid JMESPath: {e}"
+                        )
+    return errors
 
 
 def load_state(rule_name):
