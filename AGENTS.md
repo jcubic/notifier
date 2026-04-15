@@ -9,6 +9,7 @@ A generic, config-driven web scraper that monitors websites for changes and send
 - `index.py` — main script, all logic in one file
 - `config.json` — **the user's config is at `~/.notifier/config.json`**, the one in the project dir is an example
 - `config.schema.json` — JSON Schema for validation, used by `--validate` and on every run
+- `requirements.txt` — pinned minimum versions for all dependencies
 - `skeleton/` — default config + templates copied to `~/.notifier/` on first run
 - `templates/` — example Liquid templates (useme, bankier, hackernews)
 - `run.sh` — cron entry point, sets up pyenv without loading full `.bashrc`
@@ -19,13 +20,18 @@ A generic, config-driven web scraper that monitors websites for changes and send
 1. `defs` — reusable scraping definitions (URL + CSS selectors + pagination)
    - `format` — `"html"` (default) or `"xml"` for RSS/Atom feeds and XML documents (uses lxml XML parser)
    - `userAgent` — optional custom User-Agent header for HTTP requests
+   - `defs.commands` — reusable Liquid tag commands (e.g. `{% fresh date 604800 %}`, `{% today date %}`), usable in validator `test`/`match` expressions
 2. `rules` — reference a def, add schedule (cron expr), email template, recipient
 3. `input` — optional array on a rule for scraping multiple pages with different params (e.g. multiple stock symbols)
 4. `validator` — optional filter on each input entry, object or array:
    - `{"test": "{{price}} > 10"}` — numexpr expression
    - `{"match": {"value": "{{title}}", "regex": "^Ask HN"}}` — regex match
    - Array of validators = OR logic (any passes)
+   - `require: true` on a validator makes it mandatory (AND with others); remaining validators still OR-combine
    - Object with both test+match = AND logic
+   - `match.exist: false` passes when pattern does NOT match (useful for detecting something disappearing from a page)
+5. Threshold crossing — all fetched items are saved with a `_valid` flag. When an item passes a validator after previously failing (or vice versa), it triggers a re-notification. Enables alerts like "price went back above $75k after dipping".
+6. `parse: "json"` + `query` (JMESPath) — extracts structured data from embedded JSON. Variables are processed AFTER HTML extraction and ID assignment (so `{{id}}` is available in `query.path`). Parsed JSON is cached per page via module-level `_json_cache` keyed by `(id(soup), selector)`, cleared at start of each `parse_items()` call.
 
 ## How to add a new page to scrape
 
@@ -37,10 +43,11 @@ A generic, config-driven web scraper that monitors websites for changes and send
    - `query.type` — `"list"` (multiple items) or `"single"` (one item per page)
    - `query.selector` — CSS selector for item container (for XML: element names like `item`, `entry`)
    - `query.variables` — each variable: `selector` + `value` (`type: "text"` or `type: "attribute"` with `name`)
-   - Optional: `pagination`, `filter`, `id`, `value.parse: "number"|"money"`, `value.regex`, `value.prefix`
+   - Optional: `pagination`, `filter`, `id`, `value.parse: "number"|"money"|"list"|"json"`, `value.regex`, `value.prefix`
    - Optional: `sibling: true` on a variable to search next sibling element
    - Optional: `collect: true` on a variable to extract ALL matching elements as a list (use `{% for %}` in templates)
    - Optional: `selector: ":self"` to reference the container element itself (e.g. when container is `<a>` and you need its `href`)
+   - Optional: `value.parse: "json"` + `value.query` with JMESPath for extracting structured data from embedded JSON (Next.js `__NEXT_DATA__`, JSON in attributes, etc.). `value.query.path` supports Liquid variables like `{{id}}` rendered per item. See README "JSON extraction" section.
 3. Add a rule to `rules`:
    - `ref` — definition name
    - `name` — unique, used as state filename
@@ -55,19 +62,29 @@ A generic, config-driven web scraper that monitors websites for changes and send
 ## CLI flags
 
 ```
---validate      validate config and exit
---dry-run       fetch and display data, no emails, no state changes
---save-email    save emails to file instead of sending
---force         ignore schedules, run all rules
--v, --verbose   show detailed progress output
--q, --quiet     suppress all output including errors
+--validate        validate config and exit
+--dry-run         fetch and display data, no emails, no state changes
+--save-email      save emails to file instead of sending
+--force           ignore schedules, run all rules
+--force <rule>    ignore schedule, run only the named rule (errors if name not found)
+-v, --verbose     show detailed progress output
+-q, --quiet       suppress all output including errors
 ```
+
+## Validation
+
+`validate_config()` runs in this order, each step exits on failure:
+
+1. JSON Schema validation (`config.schema.json`) via `jsonschema.Draft202012Validator`
+2. Cron syntax for each rule's `schedule` (string or array) via `croniter.is_valid()`
+3. CSS selector syntax for `query.selector`, `query.expect[]`, `query.filter.selector`, `pagination.selector`, and every variable's `selector` via `soup.select()` (catches `SelectorSyntaxError`). `:self` is skipped.
+4. JMESPath syntax for `value.query.path` and `value.query.variables.*.path` via `jmespath.compile()`. Liquid placeholders `{{...}}` are replaced with `0` before checking so they don't fail parsing.
 
 ## Dependencies
 
 Python 3.12+ with: `requests`, `beautifulsoup4`, `lxml`, `python-liquid`, `croniter`, `numexpr`, `jsonschema`, `babel`, `jmespath`
 
-Installed for both pyenv Python (3.12) and system Python (3.14) at `/usr/bin/python3`.
+Install via `pip install -r requirements.txt`. Installed for both pyenv Python (3.12) and system Python (3.14) at `/usr/bin/python3`.
 
 ## Error handling
 
