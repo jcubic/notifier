@@ -1,5 +1,9 @@
 # Notifier — Agent Context
 
+## IMPORTANT: Data-Driven Architecture
+
+**Never add hardcoded logic to the code.** This project is entirely data-driven — all scraping logic, filtering, and behavior must be configured through `config.json`, not by modifying `index.py`. The code must remain generic. If a new feature or filter is needed, implement it as a generic config option that any rule can use, not as a special case in the code.
+
 ## What this is
 
 A generic, config-driven web scraper that monitors websites for changes and sends email notifications. Config lives at `~/.notifier/config.json`, templates at `~/.notifier/templates/`, state at `~/.notifier/data/`. The script (`index.py`) is run periodically via cron using `run.sh` (which sets up pyenv).
@@ -25,7 +29,10 @@ A generic, config-driven web scraper that monitors websites for changes and send
 3. `input` — optional array on a rule for scraping multiple pages with different params (e.g. multiple stock symbols)
 4. `validator` — optional filter on each input entry, object or array:
    - `{"test": "{{price}} > 10"}` — numexpr expression
-   - `{"match": {"value": "{{title}}", "regex": "^Ask HN"}}` — regex match
+   - `{"match": {"var": "title", "regex": "^Ask HN"}}` — regex match
+   - `{"match": {"var": "skills", "include": ["Linux"]}}` — include items where list contains any listed string (exact element match)
+   - `{"match": {"var": "skills", "exclude": ["Angular", "C#"]}}` — exclude items where list contains any listed string
+   - `var` — direct variable lookup (preserves lists); `value` — Liquid template (always string); use one or the other
    - Array of validators = OR logic (any passes)
    - `require: true` on a validator makes it mandatory (AND with others); remaining validators still OR-combine
    - Object with both test+match = AND logic
