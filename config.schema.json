@@ -75,6 +75,15 @@
       },
       "additionalProperties": {
         "$ref": "#/$defs/definition"
+      },
+      "patternProperties": {
+        "^validators$": {
+          "type": "object",
+          "description": "Reusable validator definitions. Each key is a validator name that can be referenced by rules via {\"@id\": \"name\"} in a validator field.",
+          "additionalProperties": {
+            "$ref": "#/$defs/validator"
+          }
+        }
       }
     },
     "rules": {
@@ -486,15 +495,33 @@
           ]
         },
         "validator": {
-          "description": "Filter extracted items. A single validator object (AND logic within), or an array of validators (OR logic — item passes if any validator passes). In an array, validators with 'require: true' must ALL pass; at least one non-required validator must also pass.",
+          "description": "Filter extracted items. A single validator object (AND logic within), an array of validators (OR logic — item passes if any validator passes), or a reference to a reusable validator via {\"@id\": \"name\"}. In an array, validators with 'require: true' must ALL pass; at least one non-required validator must also pass. Array elements can also be @id references.",
           "oneOf": [
             { "$ref": "#/$defs/validator" },
+            { "$ref": "#/$defs/validatorRef" },
             {
               "type": "array",
-              "items": { "$ref": "#/$defs/validator" },
+              "items": {
+                "oneOf": [
+                  { "$ref": "#/$defs/validator" },
+                  { "$ref": "#/$defs/validatorRef" }
+                ]
+              },
               "minItems": 1
             }
           ]
+        }
+      }
+    },
+    "validatorRef": {
+      "type": "object",
+      "description": "A reference to a reusable validator defined in defs.validators. The @id value must match a key in defs.validators.",
+      "required": ["@id"],
+      "additionalProperties": false,
+      "properties": {
+        "@id": {
+          "type": "string",
+          "description": "The name of the validator in defs.validators to use."
         }
       }
     },

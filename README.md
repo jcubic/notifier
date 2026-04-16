@@ -572,6 +572,41 @@ This is useful for combining a baseline filter with threshold alerts:
 
 The `require` validator acts as a gate — items must pass it before the OR thresholds are even considered.
 
+### Reusable validators (`@id`)
+
+Define shared validators in `defs.validators` and reference them by name using `{"@id": "name"}`. This eliminates duplication when multiple rules use the same filter:
+
+```json
+"defs": {
+  "validators": {
+    "job-board": {
+      "require": true,
+      "match": [
+        {"var": "title", "exclude": ["Angular", "C#", ".NET"]},
+        {"var": "skills", "exclude": ["Angular", "C#", ".NET", "Java"]}
+      ]
+    }
+  }
+}
+```
+
+Then reference it in rules:
+
+```json
+"input": {
+  "validator": {"@id": "job-board"}
+}
+```
+
+`@id` references work anywhere a validator is expected — as a standalone validator, or as an element in a validator array:
+
+```json
+"validator": [
+  {"@id": "job-board"},
+  { "require": true, "match": { "var": "salary", "regex": "Undisclosed", "exist": false } }
+]
+```
+
 ## Commands
 
 Commands are reusable Liquid tags defined in `defs.commands`. Each command becomes a custom `{% tag %}` that can be used in validator `test` and `match` expressions, replacing verbose Liquid expressions with short, readable tags.

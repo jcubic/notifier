@@ -33,6 +33,8 @@ A generic, config-driven web scraper that monitors websites for changes and send
    - `{"match": {"var": "skills", "include": ["Linux"]}}` — include items where list contains any listed string (exact element match)
    - `{"match": {"var": "skills", "exclude": ["Angular", "C#"]}}` — exclude items where list contains any listed string
    - `var` — direct variable lookup (preserves lists); `value` — Liquid template (always string); use one or the other
+   - `{"@id": "name"}` — reference to a reusable validator defined in `defs.validators`
+5. `defs.validators` — reusable validators referenced by `{"@id": "name"}` in rules, avoids duplication across rules
    - Array of validators = OR logic (any passes)
    - `require: true` on a validator makes it mandatory (AND with others); remaining validators still OR-combine
    - Object with both test+match = AND logic

@@ -1193,7 +1193,34 @@ def evaluate_validator(validator, item):
     return evaluate_single_validator(validator, item)
 
 
-def resolve_inputs(rule):
+def resolve_validator(validator, validators_defs):
+    """
+    Resolve @id references in a validator against defs.validators.
+
+    A validator (or array element) with {"@id": "name"} is replaced
+    by the corresponding entry from validators_defs.
+    """
+    if not validator:
+        return validator
+    if isinstance(validator, dict) and "@id" in validator:
+        return validators_defs.get(validator["@id"])
+    if isinstance(validator, list):
+        resolved = []
+        for v in validator:
+            if isinstance(v, dict) and "@id" in v:
+                ref = validators_defs.get(v["@id"])
+                if ref is not None:
+                    if isinstance(ref, list):
+                        resolved.extend(ref)
+                    else:
+                        resolved.append(ref)
+            else:
+                resolved.append(v)
+        return resolved
+    return validator
+
+
+def resolve_inputs(rule, validators_defs=None):
     """
     Resolve the input entries for a rule.
 
@@ -1208,6 +1235,8 @@ def resolve_inputs(rule):
       - 'params': dict of URL template variables
       - 'validator': numexpr expression string with Liquid variables
     """
+    if validators_defs is None:
+        validators_defs = {}
     input_spec = rule.get("input")
     if input_spec is None:
         return [{"params": rule.get("params", {}), "validator": None}]
@@ -1216,7 +1245,9 @@ def resolve_inputs(rule):
     return [
         {
             "params": entry.get("params", rule.get("params", {})),
-            "validator": entry.get("validator"),
+            "validator": resolve_validator(
+                entry.get("validator"), validators_defs
+            ),
         }
         for entry in input_spec
     ]
@@ -1239,7 +1270,8 @@ def process_rule(config, rule, save_only=False):
         return
 
     # Resolve inputs (multiple pages with different params + validators)
-    inputs = resolve_inputs(rule)
+    validators_defs = config.get("defs", {}).get("validators", {})
+    inputs = resolve_inputs(rule, validators_defs)
     all_items = []
 
     for input_entry in inputs:
