@@ -1312,6 +1312,21 @@ def process_rule(config, rule, save_only=False):
 
         all_items.extend(items)
 
+    # Deduplicate items by ID (multiple inputs may return overlapping results)
+    if len(inputs) > 1:
+        seen_ids = set()
+        unique_items = []
+        for item in all_items:
+            item_id = item.get("id")
+            if item_id is not None and item_id in seen_ids:
+                continue
+            if item_id is not None:
+                seen_ids.add(item_id)
+            unique_items.append(item)
+        if len(unique_items) < len(all_items):
+            log(f"  Deduplicated: {len(all_items)} → {len(unique_items)} item(s)")
+        all_items = unique_items
+
     log(f"  Found {len(all_items)} item(s) total.")
 
     if not all_items:
