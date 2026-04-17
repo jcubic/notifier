@@ -1,0 +1,14 @@
+Reddit - r/{{ subreddit }}
+Checked at: {{ now }}
+
+Number of new posts: {{ count }}
+============================================================
+{% for item in items %}
+
+{{ item.index }}. {{ item.title }}
+     URL:    {{ item.url }}{% if item.author != "" %}
+     Author: {{ item.author }}{% endif %}{% if item.date != "" %}
+     Date:   {{ item.date }}{% endif %}
+{% endfor %}
+
+============================================================
