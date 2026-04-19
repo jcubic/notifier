@@ -4,6 +4,10 @@
 
 **Never add hardcoded logic to the code.** This project is entirely data-driven — all scraping logic, filtering, and behavior must be configured through `config.json`, not by modifying `main.py`. The code must remain generic. If a new feature or filter is needed, implement it as a generic config option that any rule can use, not as a special case in the code.
 
+## IMPORTANT: Lint Check
+
+**Always run `ruff check src/` after editing Python files.** Fix any errors before committing. Use `ruff check src/ --fix` for auto-fixable issues.
+
 ## What this is
 
 A generic, config-driven web scraper that monitors websites for changes and sends email notifications. Config lives at `~/.mutimon/config.json`, templates at `~/.mutimon/templates/`, state at `~/.mutimon/data/`. The command (`mon`) is installed via pip and run periodically via cron.

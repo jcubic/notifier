@@ -1412,7 +1412,7 @@ def process_rule(config, rule, save_only=False):
     log(f"  Found {len(all_items)} item(s) total.")
 
     if not all_items:
-        log(f"  No items found. Nothing to do.")
+        log("  No items found. Nothing to do.")
         save_last_run(rule_name)
         return
 
@@ -1468,7 +1468,7 @@ def process_rule(config, rule, save_only=False):
                     return
                 save_email_to_file(rule_name, subject, body)
         else:
-            print(f"Warning: No template found, skipping email.", file=sys.stderr)
+            print("Warning: No template found, skipping email.", file=sys.stderr)
     else:
         log(f"[{rule_name}] No changes to notify about.")
 
