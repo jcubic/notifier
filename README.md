@@ -1,4 +1,7 @@
-# Mutimon
+<h1 align="center">
+  <img src="https://github.com/jcubic/horavox/blob/master/.github/logo.svg?raw=true"
+       alt="A minimalist dark gray logo showing a sequence of icons connected by arrows: a notification bell on the left, pointing right to a calendar with a clock on top, which then points right to a globe/network icon. Below the icons is the word 'MUTIMON' in bold uppercase letters." />
+</h1>
 
 A generic, config-driven web scraper that monitors websites for changes and sends email notifications. Define what to scrape using CSS selectors in a JSON config file, and format notifications with Liquid templates.
 
