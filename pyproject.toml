@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mutimon"
+version = "0.1.0"
+description = "Mutimon — a config-driven web scraper that monitors websites for changes and sends email notifications"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+authors = [
+    {name = "Jakub T. Jankiewicz", email = "me@jcubic.pl"},
+]
+keywords = ["web-scraper", "monitor", "notifications", "email", "css-selectors", "cron"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "requests",
+    "beautifulsoup4",
+    "lxml",
+    "python-liquid",
+    "croniter",
+    "numexpr",
+    "jsonschema",
+    "babel",
+    "jmespath",
+]
+
+[project.urls]
+Homepage = "https://github.com/jcubic/mutimon"
+Repository = "https://github.com/jcubic/mutimon"
+Issues = "https://github.com/jcubic/mutimon/issues"
+
+[project.scripts]
+mon = "mutimon.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+mutimon = ["skeleton/**/*", "config.schema.json", "AI_GUIDE.md"]

@@ -1,4 +1,4 @@
-# Notifier
+# Mutimon
 
 A generic, config-driven web scraper that monitors websites for changes and sends email notifications. Define what to scrape using CSS selectors in a JSON config file, and format notifications with Liquid templates.
 
@@ -6,36 +6,36 @@ Designed to run as a cron job. Each rule has its own schedule (cron expression),
 
 ## Installation
 
-### Dependencies
-
 ```bash
-pip install -r requirements.txt
+pip install .
 ```
+
+This installs the `mon` command.
 
 ### First run
 
-On the first run, the tool creates `~/.notifier/` with a skeleton config and example rules (Hacker News + Bitcoin price alerts):
+On the first run, the tool creates `~/.mutimon/` with a skeleton config and example rules (Hacker News + Bitcoin price alerts):
 
 ```bash
-python3 index.py
-# Config not found at /home/user/.notifier/config.json
-# Creating skeleton configuration in /home/user/.notifier...
-# Done. Edit /home/user/.notifier/config.json to configure your scraping rules.
+mon
+# Config not found at /home/user/.mutimon/config.json
+# Creating skeleton configuration in /home/user/.mutimon...
+# Done. Edit /home/user/.mutimon/config.json to configure your scraping rules.
 ```
 
-Edit `~/.notifier/config.json` with your SMTP credentials and scraping rules, then run again.
+Edit `~/.mutimon/config.json` with your SMTP credentials and scraping rules, then run again.
 
 ## Usage
 
 ```bash
-python3 index.py                    # process rules; only prints notifications and errors
-python3 index.py --force            # ignore schedules, run all rules now
-python3 index.py --force <rule>     # ignore schedule, run only the named rule
-python3 index.py --dry-run          # fetch and display data, bypass schedules, no state changes
-python3 index.py --save-email       # save email to file instead of sending via SMTP
-python3 index.py --validate         # validate config against schema and exit
-python3 index.py -v, --verbose      # show detailed progress (page fetches, counts, skipped rules)
-python3 index.py -q, --quiet        # suppress all output including errors
+mon                    # process rules; only prints notifications and errors
+mon --force            # ignore schedules, run all rules now
+mon --force <rule>     # ignore schedule, run only the named rule
+mon --dry-run          # fetch and display data, bypass schedules, no state changes
+mon --save-email       # save email to file instead of sending via SMTP
+mon --validate         # validate config against schema and exit
+mon -v, --verbose      # show detailed progress (page fetches, counts, skipped rules)
+mon -q, --quiet        # suppress all output including errors
 ```
 
 ### Cron example
@@ -44,16 +44,16 @@ Run the script periodically via system cron. Each rule's `schedule` field contro
 
 ```cron
 # Every hour (matches schedules with minute=0)
-0 * * * * bash -l -c 'python3 /path/to/index.py' >> ~/.notifier/notifier.log 2>&1
+0 * * * * mon >> ~/.mutimon/mutimon.log 2>&1
 
 # Every 5 minutes (matches any minute-level schedule)
-*/5 * * * * bash -l -c 'python3 /path/to/index.py' >> ~/.notifier/notifier.log 2>&1
+*/5 * * * * mon >> ~/.mutimon/mutimon.log 2>&1
 ```
 
 ## File structure
 
 ```
-~/.notifier/
+~/.mutimon/
   config.json              # main configuration
   templates/               # Liquid email templates
     hackernews
@@ -69,7 +69,7 @@ A [JSON Schema](config.schema.json) is provided for editor autocompletion and va
 
 The config is validated against the schema on every run. If the config is invalid, an error email with all validation errors is sent to all rule recipients and the script exits.
 
-The config file (`~/.notifier/config.json`) has three sections:
+The config file (`~/.mutimon/config.json`) has three sections:
 
 ### `email` -- SMTP server
 
@@ -139,10 +139,10 @@ Each rule references a definition and can override params, email recipient, temp
 | Field | Required | Description |
 |-------|----------|-------------|
 | `ref` | yes | Name of the definition in `defs` |
-| `name` | yes | Unique rule name. Used for state file (`~/.notifier/data/<name>`) |
+| `name` | yes | Unique rule name. Used for state file (`~/.mutimon/data/<name>`) |
 | `schedule` | no | Cron expression or array of expressions (see [Schedule](#schedule)). If omitted, runs every time. |
 | `subject` | yes | Liquid template for the email subject line |
-| `template` | yes | Path to the Liquid template file (relative to `~/.notifier/`) |
+| `template` | yes | Path to the Liquid template file (relative to `~/.mutimon/`) |
 | `email` | yes | Recipient email address |
 | `params` | no | Values for the definition's URL template variables. Used when `input` is not specified. |
 | `input` | no | One or more input entries with params and optional validators (see [Multiple inputs](#multiple-inputs)). Overrides `params`. |
@@ -811,7 +811,7 @@ The script is designed to be invoked periodically by system cron (e.g. every 5 m
 1. The current time is truncated to the start of the minute (e.g. 14:03:27 becomes 14:03:00)
 2. Each rule's cron expression is checked against that time using `croniter.match`
 3. If it matches and the rule hasn't already run in this minute window, it executes
-4. After a successful run, a timestamp is saved to `~/.notifier/data/.lastrun_<rule_name>` to prevent duplicate runs if the script is triggered again within the same minute
+4. After a successful run, a timestamp is saved to `~/.mutimon/data/.lastrun_<rule_name>` to prevent duplicate runs if the script is triggered again within the same minute
 5. If no schedule is set, the rule runs every time
 6. Use `--force` to bypass all schedules
 
@@ -857,7 +857,7 @@ The `subject` field in a rule is also a Liquid template with access to the same 
 1. On each run, all rules in the config are processed sequentially
 2. For each rule, the scraper fetches the URL (with pagination) and extracts items using CSS selectors
 3. For `parse: "money"`, the page language is detected from `<html lang>` or the `Content-Language` header, and used for locale-aware currency parsing via [babel](https://babel.pocoo.org/)
-4. Items are compared against the saved state in `~/.notifier/data/<rule_name>`
+4. Items are compared against the saved state in `~/.mutimon/data/<rule_name>`
 5. New items, or items that crossed a validator threshold (previously failed, now pass), trigger an email notification
 6. ALL items are saved in state with a `_valid` flag, so threshold crossings are detected on subsequent runs
 
@@ -878,16 +878,16 @@ The scraper sends error emails for four types of failures. The error email funct
 
 | Error | Email subject | Behavior |
 |-------|--------------|----------|
-| Missing dependency (e.g. `import liquid` fails) | `[notifier] Missing dependency` | Sends traceback, exits |
-| Invalid config (schema validation fails) | `[notifier] Invalid configuration` | Sends all validation errors, exits |
-| HTML structure change (`expect` selectors missing) | `[notifier] HTML structure changed for '<rule>'` | Sends missing selectors, skips that input, continues other rules |
-| Fatal runtime crash (unhandled exception in `main()`) | `[notifier] Fatal error` | Sends full traceback |
+| Missing dependency (e.g. `import liquid` fails) | `[mutimon] Missing dependency` | Sends traceback, exits |
+| Invalid config (schema validation fails) | `[mutimon] Invalid configuration` | Sends all validation errors, exits |
+| HTML structure change (`expect` selectors missing) | `[mutimon] HTML structure changed for '<rule>'` | Sends missing selectors, skips that input, continues other rules |
+| Fatal runtime crash (unhandled exception in `main()`) | `[mutimon] Fatal error` | Sends full traceback |
 
 Error emails are sent to all unique recipient addresses found across all rules in the config.
 
 ## Examples
 
-The `skeleton/` directory contains two ready-to-use examples that are copied to `~/.notifier/` on first run.
+The `skeleton/` directory contains two ready-to-use examples that are copied to `~/.mutimon/` on first run.
 
 ### Hacker News — New stories
 
@@ -963,7 +963,21 @@ Monitors a Reddit subreddit via its Atom feed (Reddit serves `.rss` URLs as Atom
 
 ## Configuring with AI
 
-You can use an AI coding agent (Claude Code, OpenCode, Aider, etc.) to configure the tool. Here are example prompts you can copy, paste, and adjust:
+Mutimon ships with an AI instruction file that teaches any AI assistant how to add websites. Get its path with:
+
+```bash
+mon --ai-guide
+```
+
+Use it with Claude Code in batch mode:
+
+```bash
+claude -p "$(cat $(mon --ai-guide)) Add https://github.com/trending to mutimon. Extract repo name, description, URL, language, and stars. Email me daily at 8am at user@example.com."
+```
+
+Or with any AI assistant — just paste the contents of the file as context along with your request.
+
+### Example prompts
 
 ### Monitor a website for new content
 
@@ -1014,6 +1028,10 @@ You can use an AI coding agent (Claude Code, OpenCode, Aider, etc.) to configure
 > is only in the `<script id="__NEXT_DATA__">` JSON, not in the HTML. Use
 > `parse: "json"` with a JMESPath query to extract city and URL from the
 > embedded JSON. Read the README.md and config.schema.json for reference.
+
+## Name Origin
+
+**Mutimon** is a concise Latin portmanteau formed from mutare (“to change”) + monere (“to warn / monitor”).
 
 ## License
 

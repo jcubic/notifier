@@ -1,23 +1,20 @@
-# Notifier — Agent Context
+# Mutimon — Agent Context
 
 ## IMPORTANT: Data-Driven Architecture
 
-**Never add hardcoded logic to the code.** This project is entirely data-driven — all scraping logic, filtering, and behavior must be configured through `config.json`, not by modifying `index.py`. The code must remain generic. If a new feature or filter is needed, implement it as a generic config option that any rule can use, not as a special case in the code.
+**Never add hardcoded logic to the code.** This project is entirely data-driven — all scraping logic, filtering, and behavior must be configured through `config.json`, not by modifying `main.py`. The code must remain generic. If a new feature or filter is needed, implement it as a generic config option that any rule can use, not as a special case in the code.
 
 ## What this is
 
-A generic, config-driven web scraper that monitors websites for changes and sends email notifications. Config lives at `~/.notifier/config.json`, templates at `~/.notifier/templates/`, state at `~/.notifier/data/`. The script (`index.py`) is run periodically via cron using `run.sh` (which sets up pyenv).
+A generic, config-driven web scraper that monitors websites for changes and sends email notifications. Config lives at `~/.mutimon/config.json`, templates at `~/.mutimon/templates/`, state at `~/.mutimon/data/`. The command (`mon`) is installed via pip and run periodically via cron.
 
 ## Key files
 
-- `index.py` — main script, all logic in one file
-- `config.json` — **the user's config is at `~/.notifier/config.json`**, the one in the project dir is an example
-- `config.schema.json` — JSON Schema for validation, used by `--validate` and on every run
+- `src/mutimon/main.py` — main script, all logic in one file
+- `src/mutimon/config.schema.json` — JSON Schema for validation, used by `--validate` and on every run
+- `src/mutimon/skeleton/` — default config + templates copied to `~/.mutimon/` on first run
+- `pyproject.toml` — pip package configuration, installs `mon` command
 - `requirements.txt` — pinned minimum versions for all dependencies
-- `skeleton/` — default config + templates copied to `~/.notifier/` on first run
-- `templates/` — example Liquid templates (useme, bankier, hackernews)
-- `run.sh` — cron entry point, sets up pyenv without loading full `.bashrc`
-- `pyrightconfig.json` — pyright config pointing to pyenv's site-packages
 
 ## Architecture
 
@@ -40,13 +37,13 @@ A generic, config-driven web scraper that monitors websites for changes and send
    - `require: true` on a validator makes it mandatory (AND with others); remaining validators still OR-combine
    - Object with both test+match = AND logic
    - `match.exist: false` passes when pattern does NOT match (useful for detecting something disappearing from a page)
-5. Threshold crossing — all fetched items are saved with a `_valid` flag. When an item passes a validator after previously failing (or vice versa), it triggers a re-notification. Enables alerts like "price went back above $75k after dipping".
-6. `parse: "json"` + `query` (JMESPath) — extracts structured data from embedded JSON. Variables are processed AFTER HTML extraction and ID assignment (so `{{id}}` is available in `query.path`). Parsed JSON is cached per page via module-level `_json_cache` keyed by `(id(soup), selector)`, cleared at start of each `parse_items()` call.
+6. Threshold crossing — all fetched items are saved with a `_valid` flag. When an item passes a validator after previously failing (or vice versa), it triggers a re-notification. Enables alerts like "price went back above $75k after dipping".
+7. `parse: "json"` + `query` (JMESPath) — extracts structured data from embedded JSON. Variables are processed AFTER HTML extraction and ID assignment (so `{{id}}` is available in `query.path`). Parsed JSON is cached per page via module-level `_json_cache` keyed by `(id(soup), selector)`, cleared at start of each `parse_items()` call.
 
 ## How to add a new page to scrape
 
 1. Inspect the target page HTML (use browser DevTools or `python3 -c "import requests; ..."`)
-2. Add a definition to `defs` in `~/.notifier/config.json`:
+2. Add a definition to `defs` in `~/.mutimon/config.json`:
    - `url` — supports `{{param}}` Liquid variables
    - `format` — `"html"` (default) or `"xml"` for RSS/Atom feeds and XML documents
    - `userAgent` — optional custom User-Agent string (some feeds block default agents)
@@ -64,11 +61,11 @@ A generic, config-driven web scraper that monitors websites for changes and send
    - `name` — unique, used as state filename
    - `schedule` — cron expression (e.g. `"0 8 * * *"`)
    - `subject` — Liquid template for email subject
-   - `template` — path to body template relative to `~/.notifier/`
+   - `template` — path to body template relative to `~/.mutimon/`
    - `email` — recipient
    - `params` or `input` — parameter values (input supports array + validators)
 4. Create a Liquid template file. Available vars: `{{ count }}`, `{{ now }}`, `{{ search_url }}`, `{% for item in items %}...{% endfor %}` with `{{ item.index }}` and all extracted variables
-5. Validate: `python3 index.py --validate`
+5. Validate: `mon --validate`
 
 ## CLI flags
 
@@ -95,19 +92,11 @@ A generic, config-driven web scraper that monitors websites for changes and send
 
 Python 3.12+ with: `requests`, `beautifulsoup4`, `lxml`, `python-liquid`, `croniter`, `numexpr`, `jsonschema`, `babel`, `jmespath`
 
-Install via `pip install -r requirements.txt`. Installed for both pyenv Python (3.12) and system Python (3.14) at `/usr/bin/python3`.
+Install via `pip install .` or `pip install -e .` for development.
 
 ## Error handling
 
 - Missing dependency at import → error email sent, exits
 - Invalid config → error email with validation errors, exits
-- Runtime crash in `main()` → error email with traceback
+- Runtime crash in `run()` → error email with traceback
 - `send_error_email()` uses only stdlib (no third-party deps) so it works even when the crash is caused by a missing library
-
-## Cron setup
-
-```cron
-*/5 * * * * /home/kuba/projects/jcubic/notifier/run.sh >> /home/kuba/.notifier/notifier.log 2>&1
-```
-
-There's also a symlink at `~/bin/notifier` → `index.py` (use `os.path.realpath(__file__)` not `abspath` to resolve paths correctly).

@@ -1,27 +1,28 @@
 #!/usr/bin/env python3
 
 """
-Generic web scraper and notifier.
+Mutimon — config-driven web scraper and email notifier.
 
-Reads scraping rules from ~/.notifier/config.json, extracts data from websites
+Reads scraping rules from ~/.mutimon/config.json, extracts data from websites
 using CSS selectors, detects new items, and sends email notifications using
 Liquid templates. Processes all rules defined in config on each run.
 
 Usage:
-    index.py                  # process rules whose schedule is due
-    index.py --force          # ignore schedules and run all rules
-    index.py --force <rule>   # ignore schedule and run a specific rule
-    index.py --dry-run        # fetch and display data without sending emails
-    index.py --save-email     # save emails to file instead of sending
-    index.py --validate       # validate config and exit
-    index.py --verbose        # show detailed progress output
-    index.py -q               # run silently (for cron)
+    mon                       # process rules whose schedule is due
+    mon --force               # ignore schedules and run all rules
+    mon --force <rule>        # ignore schedule and run a specific rule
+    mon --dry-run             # fetch and display data without sending emails
+    mon --save-email          # save emails to file instead of sending
+    mon --validate            # validate config and exit
+    mon --verbose             # show detailed progress output
+    mon -q                    # run silently (for cron)
 
 Designed to run as a daily cron job.
 """
 
 # === Standard library imports (always available) ===
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -34,10 +35,10 @@ from email.message import EmailMessage
 from urllib.parse import urljoin
 
 # ========================= PATHS =========================
-NOTIFIER_DIR = os.path.expanduser("~/.notifier")
-CONFIG_FILE = os.path.join(NOTIFIER_DIR, "config.json")
-TEMPLATES_DIR = os.path.join(NOTIFIER_DIR, "templates")
-DATA_DIR = os.path.join(NOTIFIER_DIR, "data")
+MUTIMON_DIR = os.path.expanduser("~/.mutimon")
+CONFIG_FILE = os.path.join(MUTIMON_DIR, "config.json")
+TEMPLATES_DIR = os.path.join(MUTIMON_DIR, "templates")
+DATA_DIR = os.path.join(MUTIMON_DIR, "data")
 SKELETON_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "skeleton")
 
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
@@ -94,7 +95,7 @@ def send_error_email(subject, body):
 
         for recipient in recipients:
             msg = EmailMessage()
-            msg["From"] = f"Notifier <{sender}>"
+            msg["From"] = f"Mutimon <{sender}>"
             msg["To"] = recipient
             msg["Subject"] = subject
             msg.set_content(body)
@@ -127,19 +128,19 @@ except ImportError:
     tb = traceback.format_exc()
     print(tb, file=sys.stderr)
     send_error_email(
-        "[notifier] Missing dependency",
-        f"The notifier script failed to start at {datetime.now()}.\n\n{tb}",
+        "[mutimon] Missing dependency",
+        f"Mutimon failed to start at {datetime.now()}.\n\n{tb}",
     )
     sys.exit(1)
 
 
 def init_config():
-    """Create ~/.notifier with skeleton files if config is missing."""
+    """Create ~/.mutimon with skeleton files if config is missing."""
     if os.path.exists(CONFIG_FILE):
         return
 
     print(f"Config not found at {CONFIG_FILE}")
-    print(f"Creating skeleton configuration in {NOTIFIER_DIR}...")
+    print(f"Creating skeleton configuration in {MUTIMON_DIR}...")
 
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(TEMPLATES_DIR, exist_ok=True)
@@ -177,6 +178,52 @@ def init_config():
 
     print(f"Done. Edit {CONFIG_FILE} to configure your scraping rules.")
     sys.exit(0)
+
+
+def is_skeleton_config():
+    """Check if the current config is unchanged from the skeleton default."""
+    src_config = os.path.join(SKELETON_DIR, "config.json")
+    if not os.path.exists(src_config) or not os.path.exists(CONFIG_FILE):
+        return False
+    with open(src_config, "r", encoding="utf-8") as f:
+        skeleton = f.read()
+    with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+        current = f.read()
+    return skeleton == current
+
+
+def print_setup_guide():
+    """Print a quick setup guide when the config hasn't been customized yet."""
+    print("It looks like you haven't configured Mutimon yet.\n")
+    print("Quick setup:")
+    print(f"  1. Open {CONFIG_FILE}")
+    print("  2. Set your SMTP server credentials in the \"email\" section")
+    print("  3. Add a scraping definition to \"defs\" (URL + CSS selectors)")
+    print("  4. Add a rule to \"rules\" (schedule, template, recipient)")
+    print("  5. Create a Liquid template in ~/.mutimon/templates/")
+    print("  6. Run: mon --validate")
+    print("  7. Test: mon --dry-run --force")
+    print("  8. Add a cron job: */5 * * * * mon -q >> ~/.mutimon/mutimon.log 2>&1")
+    print()
+    print("TIP: You can use an AI assistant to add new websites:")
+    print("     claude -p \"$(cat $(mon --ai-guide)) Add https://example.com to mon\"")
+    print()
+    print("     Run 'mon --ai-guide' to get the path to the instruction file.")
+    sys.exit(0)
+
+
+def _hash_dict(d):
+    """Return a SHA-256 hex digest of a dict's canonical JSON."""
+    return hashlib.sha256(json.dumps(d, sort_keys=True).encode()).hexdigest()
+
+
+def _load_skeleton_email_server():
+    """Load the email.server object from the skeleton config."""
+    src_config = os.path.join(SKELETON_DIR, "config.json")
+    if not os.path.exists(src_config):
+        return None
+    with open(src_config, "r", encoding="utf-8") as f:
+        return json.load(f).get("email", {}).get("server", {})
 
 
 def load_config():
@@ -235,8 +282,8 @@ def _report_validation_errors(errors):
     msg = "\n".join(lines)
     print(msg, file=sys.stderr)
     send_error_email(
-        "[notifier] Invalid configuration",
-        f"The notifier config at {CONFIG_FILE} is invalid.\n\n{msg}",
+        "[mutimon] Invalid configuration",
+        f"Config at {CONFIG_FILE} is invalid.\n\n{msg}",
     )
     sys.exit(1)
 
@@ -336,7 +383,7 @@ def _validate_jmespath_paths(config):
 
 
 def load_state(rule_name):
-    """Load state for a specific rule from ~/.notifier/data/<rule_name>."""
+    """Load state for a specific rule from ~/.mutimon/data/<rule_name>."""
     state_file = os.path.join(DATA_DIR, rule_name)
     if os.path.exists(state_file):
         try:
@@ -348,7 +395,7 @@ def load_state(rule_name):
 
 
 def save_state(rule_name, items):
-    """Save state for a specific rule to ~/.notifier/data/<rule_name>."""
+    """Save state for a specific rule to ~/.mutimon/data/<rule_name>."""
     state_file = os.path.join(DATA_DIR, rule_name)
     with open(state_file, "w", encoding="utf-8") as f:
         json.dump(items, f, ensure_ascii=False, indent=2)
@@ -1045,7 +1092,7 @@ def load_template(template_path):
     """Load a Liquid template file."""
     # Template paths in config are relative to the config file directory
     if not os.path.isabs(template_path):
-        template_path = os.path.join(NOTIFIER_DIR, template_path)
+        template_path = os.path.join(MUTIMON_DIR, template_path)
 
     if not os.path.exists(template_path):
         print(f"Warning: Template not found at {template_path}", file=sys.stderr)
@@ -1097,7 +1144,7 @@ def send_email(config, recipient, subject, body):
     sender = server_config["email"]
 
     msg = EmailMessage()
-    msg["From"] = f"Notifier <{sender}>"
+    msg["From"] = f"Mutimon <{sender}>"
     msg["To"] = recipient
     msg["Subject"] = subject
     msg.set_content(body)
@@ -1323,7 +1370,7 @@ def process_rule(config, rule, save_only=False):
             msg = str(e)
             print(f"Warning: {msg}", file=sys.stderr)
             send_error_email(
-                f"[notifier] HTML structure changed for '{rule_name}'",
+                f"[mutimon] HTML structure changed for '{rule_name}'",
                 f"Rule '{rule_name}' (ref: {ref}) detected a page structure change.\n\n{msg}",
             )
             continue
@@ -1424,9 +1471,15 @@ def process_rule(config, rule, save_only=False):
     log(f"  State saved for '{rule_name}'")
 
 
-def main():
+def run():
+    guide_path = os.path.join(
+        os.path.dirname(os.path.realpath(__file__)), "AI_GUIDE.md"
+    )
     parser = argparse.ArgumentParser(
-        description="Generic web scraper and email notifier."
+        description="Mutimon — config-driven web scraper and email notifier.",
+        epilog=f"To add websites using AI:\n"
+        f"  claude -p \"$(cat {guide_path}) Add https://example.com to mon\"",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--dry-run",
@@ -1464,7 +1517,21 @@ def main():
         action="store_true",
         help="Suppress all output",
     )
+    parser.add_argument(
+        "--ai-guide",
+        action="store_true",
+        help="Print the path to the AI instruction file for adding websites",
+    )
+    parser.add_argument(
+        "--list",
+        action="store_true",
+        help="List all rule names (usable with --force <rule>)",
+    )
     args = parser.parse_args()
+
+    if args.ai_guide:
+        print(guide_path)
+        return
 
     global verbose
     verbose = args.verbose
@@ -1474,7 +1541,32 @@ def main():
         sys.stderr = open(os.devnull, "w")
 
     init_config()
+    if is_skeleton_config():
+        print_setup_guide()
     config = load_config()
+
+    if args.list:
+        rules = config.get("rules", [])
+        if not rules:
+            print("No rules defined.")
+        else:
+            for rule in rules:
+                print(rule["name"])
+        return
+
+    # Check if SMTP credentials are still the skeleton defaults
+    skeleton_server = _load_skeleton_email_server()
+    user_server = config.get("email", {}).get("server", {})
+    if skeleton_server and _hash_dict(user_server) == _hash_dict(skeleton_server):
+        print(
+            "Error: SMTP credentials in config are still the default placeholder values.",
+            file=sys.stderr,
+        )
+        print(
+            f"Edit the \"email.server\" section in {CONFIG_FILE} with your real SMTP settings.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     if args.validate:
         validate_config(config)
@@ -1553,13 +1645,18 @@ def main():
     log("Done.")
 
 
-if __name__ == "__main__":
+def main():
+    """Entry point for the mon command."""
     try:
-        main()
+        run()
     except Exception:
         tb = traceback.format_exc()
         print(tb, file=sys.stderr)
         send_error_email(
-            "[notifier] Fatal error",
-            f"The notifier script crashed at {datetime.now()}.\n\n{tb}",
+            "[mutimon] Fatal error",
+            f"Mutimon crashed at {datetime.now()}.\n\n{tb}",
         )
+
+
+if __name__ == "__main__":
+    main()

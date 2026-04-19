@@ -1,2 +1,4 @@
 pyrightconfig.json
-.notifier
+__pycache__
+build
+*.egg-info
