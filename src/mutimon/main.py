@@ -1149,14 +1149,11 @@ def send_email(config, recipient, subject, body):
     msg["Subject"] = subject
     msg.set_content(body)
 
-    try:
-        with smtplib.SMTP(server_config["host"], server_config["port"]) as server:
-            server.starttls()
-            server.login(sender, server_config["password"])
-            server.send_message(msg)
-        info(f"  Email sent to {recipient}")
-    except Exception as e:
-        print(f"Error: Failed to send email: {e}", file=sys.stderr)
+    with smtplib.SMTP(server_config["host"], server_config["port"]) as server:
+        server.starttls()
+        server.login(sender, server_config["password"])
+        server.send_message(msg)
+    info(f"  Email sent to {recipient}")
 
 
 def save_email_to_file(rule_name, subject, body):
@@ -1458,7 +1455,17 @@ def process_rule(config, rule, save_only=False):
             if save_only:
                 save_email_to_file(rule_name, subject, body)
             else:
-                send_email(config, recipient, subject, body)
+                try:
+                    send_email(config, recipient, subject, body)
+                except Exception as e:
+                    print(
+                        f"Error: Failed to send email: {e}", file=sys.stderr
+                    )
+                    print(
+                        "State not saved — will retry on next run.",
+                        file=sys.stderr,
+                    )
+                    return
                 save_email_to_file(rule_name, subject, body)
         else:
             print(f"Warning: No template found, skipping email.", file=sys.stderr)
