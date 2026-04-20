@@ -203,7 +203,7 @@ def print_setup_guide():
     print("  5. Create a Liquid template in ~/.mutimon/templates/")
     print("  6. Run: mon --validate")
     print("  7. Test: mon --dry-run --force")
-    print("  8. Add a cron job: */5 * * * * mon -q >> ~/.mutimon/mutimon.log 2>&1")
+    print("  8. Add a cron job: (crontab -l 2>/dev/null; mon --cron) | crontab -")
     print()
     print("TIP: You can use an AI assistant to add new websites:")
     print("     claude -p \"$(cat $(mon --ai-guide)) Add https://example.com to mon\"")
@@ -1534,10 +1534,29 @@ def run():
         action="store_true",
         help="List all rule names (usable with --force <rule>)",
     )
+    parser.add_argument(
+        "--cron",
+        nargs="?",
+        const="*/5 * * * *",
+        default=None,
+        metavar="SCHEDULE",
+        help="Print a cron entry with the resolved path to mon. "
+        "Optional schedule argument (default: '*/5 * * * *').",
+    )
     args = parser.parse_args()
 
     if args.ai_guide:
         print(guide_path)
+        return
+
+    if args.cron is not None:
+        mon_path = shutil.which("mon")
+        if mon_path:
+            mon_path = os.path.realpath(mon_path)
+        else:
+            mon_path = os.path.realpath(sys.argv[0])
+        log_path = os.path.join(MUTIMON_DIR, "mutimon.log")
+        print(f"{args.cron} {mon_path} -q >> {log_path} 2>&1")
         return
 
     global verbose

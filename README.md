@@ -58,21 +58,28 @@ mon --save-email       # save email to file instead of sending via SMTP
 mon --validate         # validate config against schema and exit
 mon --list             # list all rule names (usable with --force <rule>)
 mon --ai-guide         # print the path to the AI instruction file for adding websites
+mon --cron             # print a cron entry with resolved path (default: every 5 min)
+mon --cron "0 8 * * *" # print a cron entry with a custom schedule
 mon -v, --verbose      # show detailed progress (page fetches, counts, skipped rules)
 mon -q, --quiet        # suppress all output including errors
 ```
 
-### Cron example
+### Cron setup
 
-Run the script periodically via system cron. Each rule's `schedule` field controls when it actually executes:
+Use `--cron` to generate a cron entry with the correct resolved path (works with pyenv, virtualenvs, etc.):
 
-```cron
-# Every hour (matches schedules with minute=0)
-0 * * * * mon >> ~/.mutimon/mutimon.log 2>&1
-
-# Every 5 minutes (matches any minute-level schedule)
-*/5 * * * * mon >> ~/.mutimon/mutimon.log 2>&1
+```bash
+mon --cron                  # default: every 5 minutes
+mon --cron "0 * * * *"      # custom: every hour
 ```
+
+Install it directly:
+
+```bash
+(crontab -l 2>/dev/null; mon --cron) | crontab -
+```
+
+Each rule's `schedule` field controls when it actually executes, so running `mon` frequently (e.g. every 5 minutes) is safe — rules only fire when their cron expression matches.
 
 ## File structure
 
