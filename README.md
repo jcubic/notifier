@@ -3,7 +3,7 @@
        alt="A minimalist dark gray logo showing a sequence of icons connected by arrows: a notification bell on the left, pointing right to a calendar with a clock on top, which then points right to a globe/network icon. Below the icons is the word 'MUTIMON' in bold uppercase letters." />
 </h1>
 
-[![pip](https://img.shields.io/badge/pip-0.1.0-blue.svg)](https://pypi.org/project/mutimon/)
+[![pip](https://img.shields.io/badge/pip-0.2.0-blue.svg)](https://pypi.org/project/mutimon/)
 [![CI](https://github.com/jcubic/mutimon/actions/workflows/ci.yml/badge.svg)](https://github.com/jcubic/mutimon/actions/workflows/ci.yml)
 [![mutimon GitHub repo](https://img.shields.io/badge/github-mutimon-orange?logo=github)](https://github.com/jcubic/mutimon)
 [![Coverage Status](https://coveralls.io/repos/github/jcubic/mutimon/badge.svg?branch=master)](https://coveralls.io/github/jcubic/mutimon?branch=master)
