@@ -91,7 +91,19 @@
           "type": "object",
           "description": "Reusable validator definitions. Each key is a validator name that can be referenced by rules via {\"@id\": \"name\"} in a validator field.",
           "additionalProperties": {
-            "$ref": "#/$defs/validator"
+            "oneOf": [
+              { "$ref": "#/$defs/validator" },
+              {
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    { "$ref": "#/$defs/validator" },
+                    { "$ref": "#/$defs/validatorRef" }
+                  ]
+                },
+                "minItems": 1
+              }
+            ]
           }
         }
       }
@@ -518,14 +530,24 @@
           "examples": ["you@example.com"]
         },
         "params": {
-          "type": "object",
-          "description": "Parameter values for the definition's URL template. Keys must match the definition's 'params' list. Values are also available in email templates. Used when 'input' is not specified.",
-          "additionalProperties": {
-            "type": "string"
-          },
+          "description": "Parameter values for the definition's URL template. A single object or an array of objects (each produces a separate fetch, results combined into one email). Used when 'input' is not specified.",
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": { "type": "string" }
+              },
+              "minItems": 1
+            }
+          ],
           "examples": [
             { "query": "SEO" },
-            { "query": "Wikipedia" }
+            [{ "website_id": "abc", "site_name": "Site A" }, { "website_id": "def", "site_name": "Site B" }]
           ]
         },
          "input": {

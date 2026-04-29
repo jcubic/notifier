@@ -1702,7 +1702,12 @@ def resolve_inputs(rule, validators_defs=None):
         validators_defs = {}
     input_spec = rule.get("input")
     if input_spec is None:
-        return [{"params": rule.get("params", {}), "validator": None, "track": None}]
+        params = rule.get("params", {})
+        if isinstance(params, list):
+            return [
+                {"params": p, "validator": None, "track": None} for p in params
+            ]
+        return [{"params": params, "validator": None, "track": None}]
     if isinstance(input_spec, dict):
         input_spec = [input_spec]
     return [

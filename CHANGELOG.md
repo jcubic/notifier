@@ -2,6 +2,7 @@
 * add a way to interact with an API
 * support authentication (cookie and token based)
 * add tracking state machine (support price changes)
+* allow an array of rules in a custom validator
 
 ## 0.2.0
 * add `--cron` option and improve cron setup
