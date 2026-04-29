@@ -8,6 +8,7 @@
 [![mutimon GitHub repo](https://img.shields.io/badge/github-mutimon-orange?logo=github)](https://github.com/jcubic/mutimon)
 [![Coverage Status](https://coveralls.io/repos/github/jcubic/mutimon/badge.svg?branch=master)](https://coveralls.io/github/jcubic/mutimon?branch=master)
 [![LICENSE MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/jcubic/mutimon/blob/master/LICENSE)
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fjcubic%2Fmutimon.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Fjcubic%2Fmutimon?ref=badge_shield)
 
 A generic, config-driven web scraper that monitors websites for changes and sends email notifications. Define what to scrape using CSS selectors in a JSON config file, and format notifications with Liquid templates.
 
@@ -1262,3 +1263,6 @@ It also uses [Lovelo](https://www.dafontfree.io/lovelo-font-free/) font.
 
 Copyright (C) 2026 [Jakub T. Jankiewicz](https://jakub.jankiewicz.org)<br/>
 Released under [MIT](https://opensource.org/licenses/MIT) license
+
+
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fjcubic%2Fmutimon.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fjcubic%2Fmutimon?ref=badge_large)
