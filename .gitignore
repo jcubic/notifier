@@ -2,3 +2,7 @@ pyrightconfig.json
 __pycache__
 build
 *.egg-info
+.coverage
+*.log
+tmp
+dist
