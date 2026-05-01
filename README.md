@@ -9,9 +9,14 @@
 [![Coverage Status](https://coveralls.io/repos/github/jcubic/mutimon/badge.svg?branch=master)](https://coveralls.io/github/jcubic/mutimon?branch=master)
 [![LICENSE MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/jcubic/mutimon/blob/master/LICENSE)
 
-A generic, config-driven web scraper that monitors websites for changes and sends email notifications. Define what to scrape using CSS selectors in a JSON config file, and format notifications with Liquid templates.
+A generic, config-driven web scraper that monitors websites for changes and sends email
+notifications. Define what to scrape using CSS selectors in a JSON config file, and format
+notifications with Liquid templates.
 
-Designed to run as a cron job. Each rule has its own schedule (cron expression), so the script can be invoked frequently (e.g. every hour) and each rule runs only when its schedule is due.
+Designed to run as a cron job. Each rule has its own schedule (cron expression), so the script can
+be invoked frequently (e.g. every 5 minutes) and each rule runs only when its schedule is due.
+
+Configuration works best with AI agents like OpenClaw, ClaudeCode, OpenCode, or Codex.
 
 ## Installation
 
