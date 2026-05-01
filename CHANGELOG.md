@@ -6,6 +6,7 @@
 * extend input syntax to allow using an array of data
 * add searching and transformation of the HTML during extraction
 * add `html2text` filter
+* `mon --ai-guide` now prints the contents instead of path to the file
 
 ## 0.2.0
 * add `--cron` option and improve cron setup

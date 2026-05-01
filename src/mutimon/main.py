@@ -226,9 +226,9 @@ def print_setup_guide():
     print("  8. Add a cron job: (crontab -l 2>/dev/null; mon --cron) | crontab -")
     print()
     print("TIP: You can use an AI assistant to add new websites:")
-    print("     claude -p \"$(cat $(mon --ai-guide)) Add https://example.com to mon\"")
+    print("     claude -p \"$(mon --ai-guide) Add https://example.com to mon\"")
     print()
-    print("     Run 'mon --ai-guide' to get the path to the instruction file.")
+    print("     Run 'mon --ai-guide' to print the AI instruction guide.")
     sys.exit(0)
 
 
@@ -2145,8 +2145,8 @@ def run():
     )
     parser = argparse.ArgumentParser(
         description="Mutimon — config-driven web scraper and email notifier.",
-        epilog=f"To add websites using AI:\n"
-        f"  claude -p \"$(cat {guide_path}) Add https://example.com to mon\"",
+        epilog="To add websites using AI:\n"
+        "  claude -p \"$(mon --ai-guide) Add https://example.com to mon\"",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
@@ -2188,7 +2188,7 @@ def run():
     parser.add_argument(
         "--ai-guide",
         action="store_true",
-        help="Print the path to the AI instruction file for adding websites",
+        help="Print the AI instruction guide for adding websites",
     )
     parser.add_argument(
         "--list",
@@ -2207,7 +2207,8 @@ def run():
     args = parser.parse_args()
 
     if args.ai_guide:
-        print(guide_path)
+        with open(guide_path, "r", encoding="utf-8") as f:
+            print(f.read())
         return
 
     if args.cron is not None:

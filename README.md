@@ -1245,10 +1245,10 @@ mon --ai-guide
 Use it with Claude Code in batch mode:
 
 ```bash
-claude -p "$(cat $(mon --ai-guide)) Add https://github.com/trending to mutimon. Extract repo name, description, URL, language, and stars. Email me daily at 8am at user@example.com."
+claude -p "$(mon --ai-guide) Add https://github.com/trending to mutimon. Extract repo name, description, URL, language, and stars. Email me daily at 8am at user@example.com."
 ```
 
-Or with any AI assistant — just paste the contents of the file as context along with your request.
+Or with any AI assistant — just paste the output of `mon --ai-guide` as context along with your request.
 
 ### Example prompts
 
@@ -1256,29 +1256,31 @@ Or with any AI assistant — just paste the contents of the file as context alon
 
 > Add a rule to monitor Hacker News (https://news.ycombinator.com) for new stories.
 > Extract the title, URL, score, and age. Send me an email every 6 hours
-> at user@example.com with the new stories. Read the README.md, config.schema.json,
-> and skeleton/config.json for reference.
+> at user@example.com with the new stories.
+> Read the AI guide with `mon --ai-guide` for config format reference.
 
 ### Price alerts with thresholds
 
 > Add Bitcoin price monitoring using https://coinmarketcap.com/currencies/bitcoin/.
 > Notify me when the price crosses above $75,000 or drops below $60,000.
-> Check every 4 hours. Send alerts to user@example.com. Read the README.md,
-> config.schema.json, and skeleton/config.json for reference.
+> Check every 4 hours. Send alerts to user@example.com.
+> Read the AI guide with `mon --ai-guide` for config format reference.
 
 ### Stock price tracking with state machine
 
 > Monitor ASSECOPOL stock on https://www.bankier.pl/inwestowanie/profile/quote.html?symbol=ASSECOPOL.
 > Use `track` (not `validator`) to notify me each time the price crosses above 180, 190, or 200 zł.
 > Add a silent state for below 180 so I only get notified when it rises back above thresholds.
-> Check twice daily during market hours. Read the README.md for the `track` section.
+> Check twice daily during market hours.
+> Read the AI guide with `mon --ai-guide` for config format reference.
 
 ### Monitor for a feature release
 
 > Monitor https://soloterm.com/download for Linux support. The page currently shows
 > "Coming soon" next to Linux. Notify me when that label disappears (use the match
 > validator with exist: false). Also add an expect check so I get an error email
-> if the page structure changes. Read the README.md and config.schema.json for reference.
+> if the page structure changes.
+> Read the AI guide with `mon --ai-guide` for config format reference.
 
 ### Monitor an RSS/Atom feed
 
@@ -1286,20 +1288,20 @@ Or with any AI assistant — just paste the contents of the file as context alon
 > https://www.reddit.com/r/scheme.rss. Reddit serves Atom XML, so use
 > format "xml" and a Liferea User-Agent. Extract the title, URL, author,
 > and date. Check every 6 hours and email me at user@example.com.
-> Read the README.md, config.schema.json, and skeleton/config.json for reference.
+> Read the AI guide with `mon --ai-guide` for config format reference.
 
 ### Filter content with regex
 
 > Add a rule to monitor Hacker News for "Ask HN" posts only. Use the existing
 > hackernews definition with a match validator that filters titles starting with
-> "Ask HN". Read the README.md and config.schema.json for reference.
+> "Ask HN". Read the AI guide with `mon --ai-guide` for config format reference.
 
 ### Filter RSS feed with a command
 
 > Add a rule to monitor the r/scheme subreddit via its Atom feed. Use the
 > `{% fresh date 604800 %}` command to filter out posts older than 7 days,
-> since Reddit's feed sometimes returns stale posts. Read the README.md,
-> config.schema.json, and skeleton/config.json for reference.
+> since Reddit's feed sometimes returns stale posts.
+> Read the AI guide with `mon --ai-guide` for config format reference.
 
 ### Monitor multiple subreddits with `each`
 
@@ -1307,7 +1309,8 @@ Or with any AI assistant — just paste the contents of the file as context alon
 > Use the `each` input expansion to avoid duplicating the input entry for each
 > subreddit. Filter titles containing "hiring", "hire", or "looking for" combined
 > with "Python" or "JavaScript". Use a reusable validator in `defs.validators`.
-> Check every 4 hours. Read the README.md and config.schema.json for reference.
+> Check every 4 hours.
+> Read the AI guide with `mon --ai-guide` for config format reference.
 
 ### Extract data from Next.js JSON (embedded JSON)
 
@@ -1315,7 +1318,8 @@ Or with any AI assistant — just paste the contents of the file as context alon
 > Next.js app — some data (like city-specific URLs for multi-location offers)
 > is only in the `<script id="__NEXT_DATA__">` JSON, not in the HTML. Use
 > `parse: "json"` with a JMESPath query to extract city and URL from the
-> embedded JSON. Read the README.md and config.schema.json for reference.
+> embedded JSON.
+> Read the AI guide with `mon --ai-guide` for config format reference.
 
 ### Extract content from complex page structure
 
@@ -1324,8 +1328,8 @@ Or with any AI assistant — just paste the contents of the file as context alon
 > elements, not nested in a container. Use `find` with `until` to collect
 > siblings between headings and reply buttons, `transform` to strip signatures
 > and UI elements, and `type: "html"` with the `html2text` Liquid filter to
-> convert the content to plain text in the template. Read the README.md and
-> config.schema.json for reference.
+> convert the content to plain text in the template.
+> Read the AI guide with `mon --ai-guide` for config format reference.
 
 ## Acknowledge
 
