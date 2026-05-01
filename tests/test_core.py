@@ -298,6 +298,29 @@ class TestExtractValue:
         result = main.extract_value(el, {"type": "text"}, default="empty")
         assert result == "empty"
 
+    def test_html_type(self):
+        html = "<div><p>Hello <b>world</b></p></div>"
+        soup = BeautifulSoup(html, "html.parser")
+        el = soup.select_one("p")
+        result = main.extract_value(el, {"type": "html"})
+        assert "<b>world</b>" in result
+
+    def test_html_empty_returns_default(self):
+        html = "<div><p></p></div>"
+        soup = BeautifulSoup(html, "html.parser")
+        el = soup.select_one("p")
+        result = main.extract_value(el, {"type": "html"}, default="fallback")
+        assert result == "fallback"
+
+    def test_money_parse(self):
+        html = "<span>1 234,50 zł</span>"
+        soup = BeautifulSoup(html, "html.parser")
+        el = soup.select_one("span")
+        result = main.extract_value(
+            el, {"type": "text", "parse": "money"}, locale="pl_PL"
+        )
+        assert isinstance(result, (int, float))
+
     def test_unknown_type_returns_default(self):
         el = self.soup.select_one("h3")
         result = main.extract_value(el, {"type": "unknown"}, default="x")
@@ -446,6 +469,26 @@ class TestParseItems:
         items = main.parse_items(html, query)
         assert len(items) == 1
         assert items[0]["title"] == "Page Title"
+
+    def test_parse_single_no_match(self):
+        html = "<div>Nothing</div>"
+        query = {
+            "type": "single",
+            "selector": "div.item",
+            "variables": {"title": {"selector": "h3", "value": {"type": "text"}}},
+        }
+        items = main.parse_items(html, query)
+        assert items == []
+
+    def test_parse_unknown_type(self):
+        html = '<div class="item"><h3>Title</h3></div>'
+        query = {
+            "type": "unknown",
+            "selector": "div.item",
+            "variables": {},
+        }
+        items = main.parse_items(html, query)
+        assert items == []
 
     def test_filter_excludes(self, sample_html):
         query = {
@@ -721,6 +764,99 @@ class TestResolveInputs:
         }
         result = main.resolve_inputs(rule)
         assert len(result) == 2
+
+    def test_each_input(self):
+        rule = {
+            "input": {
+                "each": {"var": "sub", "values": ["a", "b"]},
+                "params": {"feed": "{{sub}}"},
+            }
+        }
+        result = main.resolve_inputs(rule)
+        assert len(result) == 2
+        assert result[0]["params"]["feed"] == "a"
+        assert result[1]["params"]["feed"] == "b"
+
+
+# ========================= _replace_each_placeholders =========================
+
+
+class TestReplaceEachPlaceholders:
+    def test_string_value(self):
+        result = main._replace_each_placeholders(
+            "https://reddit.com/r/{{sub}}.rss", "sub", "python"
+        )
+        assert result == "https://reddit.com/r/python.rss"
+
+    def test_dict_dot_notation(self):
+        result = main._replace_each_placeholders(
+            "https://example.com/{{data.category}}/{{data.type}}",
+            "data",
+            {"category": "tech", "type": "news"},
+        )
+        assert result == "https://example.com/tech/news"
+
+    def test_nested_dict(self):
+        result = main._replace_each_placeholders(
+            "{{d.a.b}}", "d", {"a": {"b": "deep"}}
+        )
+        assert result == "deep"
+
+    def test_missing_key_unchanged(self):
+        result = main._replace_each_placeholders(
+            "{{d.missing}}", "d", {"other": "val"}
+        )
+        assert result == "{{d.missing}}"
+
+    def test_no_placeholder_unchanged(self):
+        result = main._replace_each_placeholders(
+            "no placeholders here", "var", "value"
+        )
+        assert result == "no placeholders here"
+
+
+# ========================= expand_input_each =========================
+
+
+class TestExpandInputEach:
+    def test_basic_expansion(self):
+        input_spec = {
+            "each": {"var": "sub", "values": ["python", "javascript"]},
+            "params": {"feed_url": "https://reddit.com/r/{{sub}}.rss"},
+        }
+        result = main.expand_input_each(input_spec)
+        assert len(result) == 2
+        assert result[0]["params"]["feed_url"] == "https://reddit.com/r/python.rss"
+        assert result[1]["params"]["feed_url"] == "https://reddit.com/r/javascript.rss"
+
+    def test_with_validator(self):
+        input_spec = {
+            "each": {"var": "sub", "values": ["a"]},
+            "params": {"url": "{{sub}}"},
+            "validator": {"match": {"var": "title", "regex": "test"}},
+        }
+        result = main.expand_input_each(input_spec)
+        assert result[0]["validator"] == {"match": {"var": "title", "regex": "test"}}
+
+    def test_with_track(self):
+        input_spec = {
+            "each": {"var": "sym", "values": ["AAPL"]},
+            "params": {"symbol": "{{sym}}"},
+            "track": {"value": "{{price}}", "states": []},
+        }
+        result = main.expand_input_each(input_spec)
+        assert result[0]["track"] == {"value": "{{price}}", "states": []}
+
+    def test_dict_values(self):
+        input_spec = {
+            "each": {
+                "var": "data",
+                "values": [{"cat": "tech", "lang": "en"}],
+            },
+            "params": {"url": "https://example.com/{{data.cat}}/{{data.lang}}"},
+        }
+        result = main.expand_input_each(input_spec)
+        assert result[0]["params"]["url"] == "https://example.com/tech/en"
 
 
 # ========================= Liquid =========================

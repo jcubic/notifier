@@ -658,3 +658,367 @@ class TestExtractIdEdgeCases:
         item = {"coin": "bitcoin"}
         result = main.extract_id(item, {"source": "coin"})
         assert result == "bitcoin"
+
+
+# ========================= _validate_regex_patterns =========================
+
+
+class TestValidateRegexPatterns:
+    def test_valid_patterns(self):
+        config = {
+            "defs": {
+                "test": {
+                    "url": "http://example.com",
+                    "query": {
+                        "type": "list",
+                        "selector": "div",
+                        "id": {"regex": "^(\\d+)$"},
+                        "variables": {
+                            "title": {
+                                "selector": "h3",
+                                "value": {"type": "text", "regex": "^(.+)"},
+                            }
+                        },
+                    },
+                }
+            },
+            "rules": [],
+        }
+        errors = main._validate_regex_patterns(config)
+        assert errors == []
+
+    def test_invalid_id_regex(self):
+        config = {
+            "defs": {
+                "test": {
+                    "url": "http://example.com",
+                    "query": {
+                        "type": "list",
+                        "selector": "div",
+                        "id": {"regex": "[invalid("},
+                        "variables": {},
+                    },
+                }
+            },
+            "rules": [],
+        }
+        errors = main._validate_regex_patterns(config)
+        assert len(errors) == 1
+        assert "query.id.regex" in errors[0]
+
+    def test_invalid_value_regex(self):
+        config = {
+            "defs": {
+                "test": {
+                    "url": "http://example.com",
+                    "query": {
+                        "type": "list",
+                        "selector": "div",
+                        "variables": {
+                            "title": {
+                                "selector": "h3",
+                                "value": {"type": "text", "regex": "(unclosed"},
+                            }
+                        },
+                    },
+                }
+            },
+            "rules": [],
+        }
+        errors = main._validate_regex_patterns(config)
+        assert len(errors) == 1
+        assert "value.regex" in errors[0]
+
+    def test_invalid_validator_regex(self):
+        config = {
+            "defs": {
+                "validators": {
+                    "bad": {"match": {"var": "x", "regex": "*bad*"}}
+                }
+            },
+            "rules": [],
+        }
+        errors = main._validate_regex_patterns(config)
+        assert len(errors) == 1
+        assert "validators.bad" in errors[0]
+
+    def test_validator_array(self):
+        config = {
+            "defs": {
+                "validators": {
+                    "multi": [
+                        {"match": {"var": "x", "regex": "valid"}},
+                        {"match": {"var": "y", "regex": "(broken"}},
+                    ]
+                }
+            },
+            "rules": [],
+        }
+        errors = main._validate_regex_patterns(config)
+        assert len(errors) == 1
+        assert "multi[1]" in errors[0]
+
+    def test_skips_at_id_reference(self):
+        config = {
+            "defs": {
+                "validators": {
+                    "good": {"match": {"var": "x", "regex": "ok"}}
+                }
+            },
+            "rules": [
+                {
+                    "name": "test",
+                    "input": [{"validator": {"@id": "good"}}],
+                }
+            ],
+        }
+        errors = main._validate_regex_patterns(config)
+        assert errors == []
+
+    def test_rule_input_validator(self):
+        config = {
+            "defs": {},
+            "rules": [
+                {
+                    "name": "test",
+                    "input": [
+                        {
+                            "validator": {
+                                "match": {"var": "x", "regex": "(broken"}
+                            }
+                        }
+                    ],
+                }
+            ],
+        }
+        errors = main._validate_regex_patterns(config)
+        assert len(errors) == 1
+        assert "rules.test" in errors[0]
+
+    def test_each_input_validator(self):
+        config = {
+            "defs": {},
+            "rules": [
+                {
+                    "name": "test",
+                    "input": {
+                        "each": {"var": "sub", "values": ["a", "b"]},
+                        "validator": {
+                            "match": {"var": "x", "regex": "[bad("}
+                        },
+                    },
+                }
+            ],
+        }
+        errors = main._validate_regex_patterns(config)
+        assert len(errors) == 1
+        assert "rules.test" in errors[0]
+
+    def test_skips_commands_filters_validators_defs(self):
+        config = {
+            "defs": {
+                "commands": {"fresh": {"args": [], "template": "x"}},
+                "filters": {"clean": "strip"},
+                "validators": {},
+            },
+            "rules": [],
+        }
+        errors = main._validate_regex_patterns(config)
+        assert errors == []
+
+    def test_match_as_list(self):
+        config = {
+            "defs": {
+                "validators": {
+                    "v": {
+                        "match": [
+                            {"var": "x", "regex": "good"},
+                            {"var": "y", "regex": "(bad"},
+                        ]
+                    }
+                }
+            },
+            "rules": [],
+        }
+        errors = main._validate_regex_patterns(config)
+        assert len(errors) == 1
+        assert "match[1]" in errors[0]
+
+
+# ========================= validate_css find/transform =========================
+
+
+class TestValidateCssFindTransform:
+    def test_valid_find_selectors(self):
+        config = {
+            "defs": {
+                "test": {
+                    "url": "http://example.com",
+                    "query": {
+                        "type": "list",
+                        "selector": "div",
+                        "variables": {
+                            "x": {
+                                "selector": "p",
+                                "find": [["select", ".valid"], ["until", ".stop"]],
+                                "value": {"type": "text"},
+                            }
+                        },
+                    },
+                }
+            },
+            "rules": [],
+        }
+        errors = main._validate_css_selectors(config)
+        assert errors == []
+
+    def test_invalid_find_selector(self):
+        config = {
+            "defs": {
+                "test": {
+                    "url": "http://example.com",
+                    "query": {
+                        "type": "list",
+                        "selector": "div",
+                        "variables": {
+                            "x": {
+                                "selector": "p",
+                                "find": [["select", "div[[["]],
+                                "value": {"type": "text"},
+                            }
+                        },
+                    },
+                }
+            },
+            "rules": [],
+        }
+        errors = main._validate_css_selectors(config)
+        assert len(errors) == 1
+        assert "find[0]" in errors[0]
+
+    def test_invalid_transform_selector(self):
+        config = {
+            "defs": {
+                "test": {
+                    "url": "http://example.com",
+                    "query": {
+                        "type": "list",
+                        "selector": "div",
+                        "variables": {
+                            "x": {
+                                "selector": "p",
+                                "transform": [["remove", ":::bad"]],
+                                "value": {"type": "text"},
+                            }
+                        },
+                    },
+                }
+            },
+            "rules": [],
+        }
+        errors = main._validate_css_selectors(config)
+        assert len(errors) == 1
+        assert "transform[0]" in errors[0]
+
+    def test_siblings_step_no_selector_check(self):
+        config = {
+            "defs": {
+                "test": {
+                    "url": "http://example.com",
+                    "query": {
+                        "type": "list",
+                        "selector": "div",
+                        "variables": {
+                            "x": {
+                                "selector": "p",
+                                "find": [["siblings"]],
+                                "value": {"type": "text"},
+                            }
+                        },
+                    },
+                }
+            },
+            "rules": [],
+        }
+        errors = main._validate_css_selectors(config)
+        assert errors == []
+
+
+# ========================= validate_only =========================
+
+
+class TestValidateOnly:
+    def test_validate_only_skips_email(self, tmp_mutimon, write_config):
+        config = {
+            "email": {
+                "server": {
+                    "host": "smtp.test.com",
+                    "port": 587,
+                    "password": "pass",
+                    "email": "test@test.com",
+                }
+            },
+            "defs": {},
+            "rules": [{"schedule": "bad cron", "name": "broken"}],
+        }
+        write_config(config)
+        with mock.patch.object(main, "send_error_email") as mock_email:
+            with pytest.raises(SystemExit):
+                main.validate_config(config, validate_only=True)
+            mock_email.assert_not_called()
+
+    def test_validate_normal_sends_email(self, tmp_mutimon, write_config):
+        config = {
+            "email": {
+                "server": {
+                    "host": "smtp.test.com",
+                    "port": 587,
+                    "password": "pass",
+                    "email": "test@test.com",
+                }
+            },
+            "defs": {},
+            "rules": [{"schedule": "bad cron", "name": "broken"}],
+        }
+        write_config(config)
+        with mock.patch.object(main, "send_error_email") as mock_email:
+            with pytest.raises(SystemExit):
+                main.validate_config(config, validate_only=False)
+            mock_email.assert_called_once()
+
+
+# ========================= _validate_jmespath sub-variable =========================
+
+
+class TestValidateJmespathSubVar:
+    def test_invalid_sub_variable_path(self):
+        config = {
+            "defs": {
+                "test": {
+                    "url": "http://example.com",
+                    "query": {
+                        "type": "list",
+                        "selector": "div",
+                        "variables": {
+                            "data": {
+                                "selector": "script",
+                                "value": {
+                                    "type": "text",
+                                    "parse": "json",
+                                    "query": {
+                                        "path": "items[0]",
+                                        "variables": {
+                                            "city": {"path": "locations[???"}
+                                        },
+                                    },
+                                },
+                            }
+                        },
+                    },
+                }
+            },
+            "rules": [],
+        }
+        errors = main._validate_jmespath_paths(config)
+        assert len(errors) == 1
+        assert "city" in errors[0]
