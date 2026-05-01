@@ -85,6 +85,16 @@ def send_error_email(subject, body):
         sender = server_config.get("email")
         password = server_config.get("password")
 
+        if password and "{{" in password:
+            try:
+                with open(SECRETS_FILE, "r", encoding="utf-8") as sf:
+                    secrets = json.load(sf)
+                password = secrets.get("email", {}).get("password")
+            except (json.JSONDecodeError, OSError, FileNotFoundError):
+                password = None
+            if not password:
+                return
+
         if not all([host, sender, password]):
             return
 
@@ -262,7 +272,7 @@ def liquid_context(params, auth_data=None):
     return ctx
 
 
-def validate_config(config):
+def validate_config(config, validate_only=False):
     """
     Validate config against the JSON Schema, then check cron expressions,
     CSS selectors, and JMESPath paths for syntax errors.
@@ -287,7 +297,7 @@ def validate_config(config):
     errors = list(validator.iter_errors(config))
 
     if errors:
-        _report_validation_errors(errors)
+        _report_validation_errors(errors, validate_only)
 
     # Additional syntax checks beyond JSON Schema
     syntax_errors = []
@@ -297,10 +307,10 @@ def validate_config(config):
     syntax_errors.extend(_validate_regex_patterns(config))
 
     if syntax_errors:
-        _report_validation_errors(syntax_errors)
+        _report_validation_errors(syntax_errors, validate_only)
 
 
-def _report_validation_errors(errors):
+def _report_validation_errors(errors, validate_only=False):
     """Format and report validation errors, then exit."""
     lines = [f"Config validation failed with {len(errors)} error(s):\n"]
     for i, err in enumerate(errors, 1):
@@ -312,10 +322,11 @@ def _report_validation_errors(errors):
 
     msg = "\n".join(lines)
     print(msg, file=sys.stderr)
-    send_error_email(
-        "[mutimon] Invalid configuration",
-        f"Config at {CONFIG_FILE} is invalid.\n\n{msg}",
-    )
+    if not validate_only:
+        send_error_email(
+            "[mutimon] Invalid configuration",
+            f"Config at {CONFIG_FILE} is invalid.\n\n{msg}",
+        )
     sys.exit(1)
 
 
@@ -2253,7 +2264,7 @@ def run():
         sys.exit(1)
 
     if args.validate:
-        validate_config(config)
+        validate_config(config, validate_only=True)
         setup_liquid(config)
         print(f"Config at {CONFIG_FILE} is valid.")
         return
