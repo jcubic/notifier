@@ -126,12 +126,11 @@ class TestValidate:
 
 
 class TestAiGuide:
-    def test_prints_path(self):
+    def test_prints_contents(self):
         rc, out, _ = run_mon("--ai-guide")
         assert rc == 0
-        path = out.strip()
-        assert path.endswith("AI_GUIDE.md")
-        assert os.path.exists(path)
+        assert "# Mutimon" in out
+        assert "Definition structure" in out
 
 
 class TestList:

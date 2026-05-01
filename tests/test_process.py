@@ -410,7 +410,7 @@ class TestRunFunction:
         with mock.patch("sys.argv", ["mon", "--ai-guide"]):
             main.run()
         out = capsys.readouterr().out
-        assert "AI_GUIDE.md" in out
+        assert "# Mutimon" in out
 
     def test_cron_default(self, capsys):
         with mock.patch("sys.argv", ["mon", "--cron"]):
