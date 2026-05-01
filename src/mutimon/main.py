@@ -22,6 +22,7 @@ Designed to run as a daily cron job.
 
 # === Standard library imports (always available) ===
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -293,6 +294,7 @@ def validate_config(config):
     syntax_errors.extend(_validate_cron_expressions(config))
     syntax_errors.extend(_validate_css_selectors(config))
     syntax_errors.extend(_validate_jmespath_paths(config))
+    syntax_errors.extend(_validate_regex_patterns(config))
 
     if syntax_errors:
         _report_validation_errors(syntax_errors)
@@ -371,6 +373,13 @@ def _validate_css_selectors(config):
                 check_selector(
                     sel, f"defs.{def_name}.query.variables.{var_name}.selector"
                 )
+            var_path = f"defs.{def_name}.query.variables.{var_name}"
+            for i, step in enumerate(var_spec.get("find", [])):
+                if len(step) >= 2 and step[0] in ("select", "until"):
+                    check_selector(step[1], f"{var_path}.find[{i}]")
+            for i, step in enumerate(var_spec.get("transform", [])):
+                if len(step) >= 2 and step[0] in ("remove", "remove_after"):
+                    check_selector(step[1], f"{var_path}.transform[{i}]")
     return errors
 
 
@@ -408,6 +417,71 @@ def _validate_jmespath_paths(config):
                             f".value.query.variables.{sub_var}.path] "
                             f"Invalid JMESPath: {e}"
                         )
+    return errors
+
+
+def _validate_regex_patterns(config):
+    """Check all regex patterns for syntax errors."""
+    errors = []
+
+    def check_regex(pattern, path):
+        try:
+            re.compile(pattern)
+        except re.error as e:
+            errors.append(f"[{path}] Invalid regex '{pattern}': {e}")
+
+    for def_name, definition in config.get("defs", {}).items():
+        if def_name in ("commands", "filters", "validators"):
+            continue
+        query = definition.get("query", {})
+        id_spec = query.get("id", {})
+        if id_spec.get("regex"):
+            check_regex(id_spec["regex"], f"defs.{def_name}.query.id.regex")
+        for var_name, var_spec in query.get("variables", {}).items():
+            value = var_spec.get("value", {})
+            if value.get("regex"):
+                check_regex(
+                    value["regex"],
+                    f"defs.{def_name}.query.variables.{var_name}.value.regex",
+                )
+
+    def check_validator(validator, path):
+        if isinstance(validator, list):
+            for i, v in enumerate(validator):
+                check_validator(v, f"{path}[{i}]")
+            return
+        if not isinstance(validator, dict):
+            return
+        if "@id" in validator:
+            return
+        match = validator.get("match")
+        if match:
+            matches = match if isinstance(match, list) else [match]
+            for i, m in enumerate(matches):
+                if isinstance(m, dict) and m.get("regex"):
+                    match_path = f"{path}.match[{i}]" if isinstance(match, list) else f"{path}.match"
+                    check_regex(m["regex"], f"{match_path}.regex")
+
+    validators_defs = config.get("defs", {}).get("validators", {})
+    for name, v in validators_defs.items():
+        check_validator(v, f"defs.validators.{name}")
+
+    for rule in config.get("rules", []):
+        rule_name = rule.get("name", "?")
+        input_spec = rule.get("input")
+        if isinstance(input_spec, dict) and "each" not in input_spec:
+            input_spec = [input_spec]
+        elif isinstance(input_spec, dict) and "each" in input_spec:
+            v = input_spec.get("validator")
+            if v:
+                check_validator(v, f"rules.{rule_name}.input.validator")
+            input_spec = None
+        if isinstance(input_spec, list):
+            for i, entry in enumerate(input_spec):
+                v = entry.get("validator")
+                if v:
+                    check_validator(v, f"rules.{rule_name}.input[{i}].validator")
+
     return errors
 
 
@@ -543,6 +617,14 @@ def replace_regex(value, pattern, replacement):
     return re.sub(pattern, replacement, str(value))
 
 
+def liquid_html2text(value):
+    """Liquid filter: convert HTML to plain text preserving code blocks."""
+    import html2text
+    converter = html2text.HTML2Text()
+    converter.body_width = 0
+    return converter.handle(str(value)).strip()
+
+
 def make_filter(expression, env):
     """Create a Liquid filter function from a filter expression string.
 
@@ -569,6 +651,7 @@ def setup_liquid(config):
         liquid.add_tag(make_command_tag(cmd_name, template_str, arg_names))
     # Register built-in base filters
     liquid.add_filter("replace_regex", replace_regex)
+    liquid.add_filter("html2text", liquid_html2text)
     # Register user-defined filters from config (Liquid filter expressions)
     filters = config.get("defs", {}).get("filters", {})
     for filter_name, filter_expr in filters.items():
@@ -824,6 +907,8 @@ def extract_value(element, value_spec, default=None, locale=None):
 
     if value_spec["type"] == "text":
         raw = element.get_text(strip=True)
+    elif value_spec["type"] == "html":
+        raw = element.decode_contents()
     elif value_spec["type"] == "attribute":
         raw = element.get(value_spec["name"], "")
         if raw is None:
@@ -1045,29 +1130,99 @@ def should_include(element, filter_spec):
     return True
 
 
+def apply_find(element, find_steps):
+    """Apply a chain of traversal steps to an element, returning the result.
+
+    Each step is [method_name, ...args]. Supported methods:
+      - ["until", selector]  — collect next siblings until one contains selector
+      - ["select", selector] — CSS select_one within current context
+      - ["siblings"]         — collect all next siblings into a fragment
+    """
+    current = element
+    for step in find_steps:
+        if current is None:
+            return None
+        method = step[0]
+        if method == "until":
+            selector = step[1]
+            collected = []
+            for sib in current.next_siblings:
+                if not hasattr(sib, "name") or not sib.name:
+                    continue
+                collected.append(sib)
+                if sib.select_one(selector):
+                    break
+            if not collected:
+                return None
+            wrapper = BeautifulSoup("", "html.parser")
+            container = wrapper.new_tag("div")
+            for el in collected:
+                container.append(copy.copy(el))
+            current = container
+        elif method == "select":
+            selector = step[1]
+            current = current.select_one(selector)
+        elif method == "siblings":
+            collected = []
+            for sib in current.next_siblings:
+                if not hasattr(sib, "name") or not sib.name:
+                    continue
+                collected.append(sib)
+            if not collected:
+                return None
+            wrapper = BeautifulSoup("", "html.parser")
+            container = wrapper.new_tag("div")
+            for el in collected:
+                container.append(copy.copy(el))
+            current = container
+    return current
+
+
+def apply_transform(element, transform_steps):
+    """Apply transformation steps to a DOM element (modifies a copy).
+
+    Each step is [method_name, ...args]. Supported methods:
+      - ["remove", selector]      — remove all elements matching the CSS selector
+      - ["remove_after", selector] — remove first match and all following siblings
+    """
+    el = copy.copy(element)
+    for step in transform_steps:
+        method = step[0]
+        if method == "remove":
+            selector = step[1]
+            for match in el.select(selector):
+                match.decompose()
+        elif method == "remove_after":
+            selector = step[1]
+            match = el.select_one(selector)
+            if match:
+                parent = match.parent
+                remove = False
+                for child in list(parent.children):
+                    if child is match:
+                        remove = True
+                    if remove:
+                        child.extract()
+    return el
+
+
 def extract_variables(element, variables_spec, locale=None):
     """Extract all defined variables from an element.
 
     Supports an optional "sibling" key in the variable spec. When present,
     the selector is applied to the next sibling element(s) instead of
-    inside the matched element. Example:
+    inside the matched element.
 
-        "score": {
-          "sibling": true,
-          "selector": ".score",
-          "value": { "type": "text" }
-        }
+    Supports an optional "find" key as an alternative to "sibling" + "selector".
+    "find" is an array of traversal steps chained like jQuery methods.
+    When present, it replaces both "sibling" and "selector" for locating
+    the extraction target.
+
+    Supports an optional "transform" key for modifying the DOM fragment
+    before value extraction (e.g. removing signature elements).
 
     Supports an optional "collect" key. When true, all elements matching
-    the selector are collected, each value is extracted, and they are
-    joined with the "separator" string (default: ", "). Example:
-
-        "skills": {
-          "selector": ".skill-tag",
-          "value": { "type": "text" },
-          "collect": true,
-          "separator": ", "
-        }
+    the selector are collected and returned as a list.
     """
     data = {}
     for var_name, var_spec in variables_spec.items():
@@ -1075,6 +1230,23 @@ def extract_variables(element, variables_spec, locale=None):
         value = var_spec.get("value", {})
         if value.get("parse") == "json" and value.get("query"):
             continue
+
+        find_steps = var_spec.get("find")
+        if find_steps:
+            search_root = apply_find(element, find_steps)
+            if search_root is None:
+                data[var_name] = var_spec.get("default", "")
+                continue
+            transform = var_spec.get("transform")
+            if transform:
+                search_root = apply_transform(search_root, transform)
+            value = extract_value(
+                search_root, var_spec["value"],
+                var_spec.get("default"), locale=locale
+            )
+            data[var_name] = value if value is not None else ""
+            continue
+
         search_root = element
         if var_spec.get("sibling"):
             # Walk through next siblings until we find a non-spacer element

@@ -347,7 +347,7 @@
     },
     "variable": {
       "type": "object",
-      "description": "Defines how to extract a named value. For HTML/XML: uses CSS selector + value spec. For JSON format: uses JMESPath 'path'.",
+      "description": "Defines how to extract a named value. For HTML/XML: uses CSS selector + value spec, or 'find' for advanced traversal. For JSON format: uses JMESPath 'path'.",
       "additionalProperties": false,
       "properties": {
         "path": {
@@ -358,6 +358,37 @@
           "type": "string",
           "description": "CSS selector relative to the item container (or its sibling if 'sibling' is true). Use ':self' to reference the container element itself.",
           "examples": [".titleline > a", "a.job__title-link", ".score", ":self"]
+        },
+        "find": {
+          "type": "array",
+          "description": "Advanced DOM traversal chain (alternative to selector + sibling). Each step is an array of [method, ...args]. Steps are applied sequentially, each operating on the result of the previous step. Starting context is the item container element.",
+          "items": {
+            "type": "array",
+            "description": "A traversal step: [method_name, ...args].",
+            "items": { "type": "string" },
+            "minItems": 1,
+            "examples": [
+              ["until", ".reply-button"],
+              ["select", ".reply-button"],
+              ["siblings"]
+            ]
+          },
+          "minItems": 1
+        },
+        "transform": {
+          "type": "array",
+          "description": "DOM transformation steps applied to the element before value extraction. Each step is [method, ...args]. Applied after 'find' traversal. Methods: 'remove' (remove all matching elements), 'remove_after' (remove first match and all following siblings in its parent).",
+          "items": {
+            "type": "array",
+            "description": "A transformation step: [method_name, ...args].",
+            "items": { "type": "string" },
+            "minItems": 1,
+            "examples": [
+              ["remove", ".signature"],
+              ["remove", "[data-mw-comment-sig]"]
+            ]
+          },
+          "minItems": 1
         },
         "value": {
           "$ref": "#/$defs/valueSpec"
@@ -387,8 +418,8 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["text", "attribute"],
-          "description": "'text': extract the inner text content of the element (trimmed). 'attribute': extract the value of an HTML attribute."
+          "enum": ["text", "attribute", "html"],
+          "description": "'text': extract the inner text content of the element (trimmed). 'attribute': extract the value of an HTML attribute. 'html': extract the inner HTML as a raw string (use the html2text Liquid filter in templates to convert to plain text)."
         },
         "name": {
           "type": "string",

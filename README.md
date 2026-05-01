@@ -197,6 +197,7 @@ Each variable in `query.variables` defines how to extract a value from a matched
 |------|-------------|--------------|
 | `text` | Inner text of the element | |
 | `attribute` | HTML attribute value | `name` -- attribute name (e.g. `"href"`) |
+| `html` | Raw inner HTML of the element | Use the `html2text` Liquid filter in templates to convert to plain text |
 
 ### Optional value modifiers
 
@@ -215,6 +216,8 @@ Each variable in `query.variables` defines how to extract a value from a matched
 | `default` | Fallback value if the selector doesn't match or the value is empty |
 | `sibling` | When `true`, search the next sibling element instead of within the matched element. Needed when data is split across adjacent HTML elements (e.g. Hacker News stores title and score in separate `<tr>` rows). |
 | `collect` | When `true`, collect ALL matching elements (using `select()` instead of `select_one()`). Returns a list that can be iterated in templates with `{% for skill in item.skills %}`. Useful for extracting lists of tags, skills, or categories from repeated elements. |
+| `find` | Array of chainable DOM traversal steps for advanced element navigation. See [DOM traversal](#dom-traversal-find). |
+| `transform` | Array of DOM mutation steps applied before value extraction. See [DOM transformation](#dom-transformation-transform). |
 
 ### Special selectors
 
@@ -270,6 +273,74 @@ When the container element itself holds the data you need (e.g. an `<a>` tag wit
   }
 }
 ```
+
+## DOM traversal (`find`)
+
+For complex pages where the data you need isn't inside the item container, use `find` to navigate the DOM with chainable traversal steps. This works like jQuery methods — each step takes the result of the previous one as input.
+
+### Traversal methods
+
+| Method | Description |
+|--------|-------------|
+| `["select", selector]` | Run `select_one()` within the current element |
+| `["until", selector]` | Collect next siblings until one matches the selector (inclusive) |
+| `["siblings"]` | Collect all next siblings into a fragment |
+
+Steps are applied in order. The result of each step becomes the input for the next.
+
+### Example: Wikipedia discussion threads
+
+Wikipedia discussion pages use DiscussionTools markup where thread content is spread across sibling elements rather than nested inside a container. The `find` chain navigates from the heading to the reply button, collecting everything in between:
+
+```json
+"content": {
+  "selector": "div.mw-heading2",
+  "find": [
+    ["until", ".ext-discussiontools-init-replylink-buttons"]
+  ],
+  "transform": [
+    ["remove", ".ext-discussiontools-init-replylink-buttons"],
+    ["remove_after", "[data-mw-comment-sig]"]
+  ],
+  "value": { "type": "html" }
+}
+```
+
+This selects the heading container, collects all siblings until the reply button, then transforms the result by removing UI elements and stripping signatures before extracting the raw HTML.
+
+## DOM transformation (`transform`)
+
+Use `transform` to modify a DOM fragment before extracting its value. Each step mutates a copy of the element (the original is never modified). Combine with `find` to first locate, then clean up content.
+
+### Transform methods
+
+| Method | Description |
+|--------|-------------|
+| `["remove", selector]` | Remove all elements matching the CSS selector |
+| `["remove_after", selector]` | Remove the first match and all following siblings in its parent |
+
+### Example: stripping signatures
+
+Wikipedia comments end with signature markup. Use `remove_after` to cut everything from the signature marker onward:
+
+```json
+"transform": [
+  ["remove", ".reply-button"],
+  ["remove_after", "[data-mw-comment-sig]"]
+]
+```
+
+## HTML value type and `html2text` filter
+
+Use `type: "html"` to extract the raw inner HTML of an element instead of plain text. This preserves the full markup including links, code blocks, and formatting.
+
+To convert HTML to readable plain text in email templates, use the built-in `html2text` Liquid filter:
+
+```liquid
+{{ item.content | html2text | truncate: 1000 }}
+```
+
+The `html2text` filter converts HTML to Markdown-like plain text, preserving code blocks and link URLs. The `truncate` filter can be chained to limit output length.
 
 ## JSON extraction
 
@@ -775,6 +846,7 @@ The expression uses standard Liquid pipe syntax. Built-in Liquid filters (`strip
 | Filter | Description |
 |--------|-------------|
 | `replace_regex: pattern, replacement` | Regex substitution (supports backreferences `\1`, `\2`, etc.) |
+| `html2text` | Convert HTML to plain text, preserving code blocks and link URLs |
 
 Filters can be chained with `|` — the output of one becomes the input of the next. Custom filters can also reference other custom filters defined earlier.
 
@@ -1244,6 +1316,16 @@ Or with any AI assistant — just paste the contents of the file as context alon
 > is only in the `<script id="__NEXT_DATA__">` JSON, not in the HTML. Use
 > `parse: "json"` with a JMESPath query to extract city and URL from the
 > embedded JSON. Read the README.md and config.schema.json for reference.
+
+### Extract content from complex page structure
+
+> Add a rule to monitor a Wikipedia discussion page for new threads. The page
+> uses MediaWiki DiscussionTools where thread content is spread across sibling
+> elements, not nested in a container. Use `find` with `until` to collect
+> siblings between headings and reply buttons, `transform` to strip signatures
+> and UI elements, and `type: "html"` with the `html2text` Liquid filter to
+> convert the content to plain text in the template. Read the README.md and
+> config.schema.json for reference.
 
 ## Acknowledge
 

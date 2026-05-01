@@ -7,3 +7,4 @@ numexpr>=2.10
 jsonschema>=4.20
 babel>=2.16
 jmespath>=1.0
+html2text>=2024.2

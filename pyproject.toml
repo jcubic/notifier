@@ -33,6 +33,7 @@ dependencies = [
     "jsonschema",
     "babel",
     "jmespath",
+    "html2text",
 ]
 
 [project.urls]

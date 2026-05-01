@@ -38,7 +38,7 @@ A generic, config-driven web scraper that monitors websites for changes and send
    - `format` — `"html"` (default) or `"xml"` for RSS/Atom feeds and XML documents (uses lxml XML parser)
    - `userAgent` — optional custom User-Agent header for HTTP requests
    - `defs.commands` — reusable Liquid tag commands (e.g. `{% fresh date 604800 %}`, `{% today date %}`), usable in validator `test`/`match` expressions
-   - `defs.filters` — custom Liquid filters defined as Liquid filter expression strings (e.g. `"clean": "replace_regex: '\\s+', ' ' | strip"`), usable as `{{ value | name }}` in templates. Built-in `replace_regex` filter available for regex substitution.
+   - `defs.filters` — custom Liquid filters defined as Liquid filter expression strings (e.g. `"clean": "replace_regex: '\\s+', ' ' | strip"`), usable as `{{ value | name }}` in templates. Built-in filters: `replace_regex` for regex substitution, `html2text` for converting HTML to plain text (preserves code blocks).
 2. `rules` — reference a def, add schedule (cron expr), email template, recipient
 3. `input` — optional array on a rule for scraping multiple pages with different params (e.g. multiple stock symbols)
 4. `validator` — optional filter on each input entry, object or array:
@@ -66,13 +66,15 @@ A generic, config-driven web scraper that monitors websites for changes and send
    - `userAgent` — optional custom User-Agent string (some feeds block default agents)
    - `query.type` — `"list"` (multiple items) or `"single"` (one item per page)
    - `query.selector` — CSS selector for item container (for XML: element names like `item`, `entry`)
-   - `query.variables` — each variable: `selector` + `value` (`type: "text"` or `type: "attribute"` with `name`)
+   - `query.variables` — each variable: `selector` + `value` (`type: "text"`, `type: "attribute"` with `name`, or `type: "html"` for raw inner HTML)
    - Optional: `pagination`, `filter`, `id`, `value.parse: "number"|"money"|"list"|"json"`, `value.regex`, `value.prefix`
    - Optional: `query.reject` — array of CSS selectors; if any match, the page returns 0 items (e.g. a "no results" indicator that hides recommended/unrelated content)
    - Optional: `sibling: true` on a variable to search next sibling element
    - Optional: `collect: true` on a variable to extract ALL matching elements as a list (use `{% for %}` in templates)
    - Optional: `selector: ":self"` to reference the container element itself (e.g. when container is `<a>` and you need its `href`)
    - Optional: `value.parse: "json"` + `value.query` with JMESPath for extracting structured data from embedded JSON (Next.js `__NEXT_DATA__`, JSON in attributes, etc.). `value.query.path` supports Liquid variables like `{{id}}` rendered per item. See README "JSON extraction" section.
+   - Optional: `find` — array of chainable DOM traversal steps `[["select", sel], ["until", sel], ["siblings"]]` for navigating complex page structures where data isn't inside the container. Replaces `sibling` + `selector` when present.
+   - Optional: `transform` — array of DOM mutation steps `[["remove", sel], ["remove_after", sel]]` applied to a copy of the element before value extraction (e.g. stripping signatures, UI buttons).
 3. Add a rule to `rules`:
    - `ref` — definition name
    - `name` — unique, used as state filename
