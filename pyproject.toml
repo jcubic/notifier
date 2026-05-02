@@ -7,7 +7,7 @@ name = "mutimon"
 version = "0.2.0"
 description = "Mutimon — a config-driven web scraper that monitors websites for changes and sends email notifications"
 readme = "README.md"
-license = "MIT"
+license = "GPL-3.0-or-later"
 requires-python = ">=3.12"
 authors = [
     {name = "Jakub T. Jankiewicz", email = "me@jcubic.pl"},
