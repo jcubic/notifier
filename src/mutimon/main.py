@@ -41,6 +41,7 @@ CONFIG_FILE = os.path.join(MUTIMON_DIR, "config.json")
 TEMPLATES_DIR = os.path.join(MUTIMON_DIR, "templates")
 DATA_DIR = os.path.join(MUTIMON_DIR, "data")
 SKELETON_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "skeleton")
+LOGS_DIR = os.path.join(MUTIMON_DIR, "logs")
 SECRETS_FILE = os.path.join(MUTIMON_DIR, "secrets.json")
 AUTH_DIR = os.path.join(DATA_DIR, ".auth")
 
@@ -59,6 +60,15 @@ def log(msg):
 def info(msg):
     """Print an essential message always (unless --quiet)."""
     print(msg)
+
+
+def rule_log(rule_name, msg):
+    """Append a timestamped message to ~/.mutimon/logs/<rule_name>.log."""
+    os.makedirs(LOGS_DIR, exist_ok=True)
+    log_file = os.path.join(LOGS_DIR, f"{rule_name}.log")
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with open(log_file, "a", encoding="utf-8") as f:
+        f.write(f"[{timestamp}] {msg}\n")
 
 
 # =========================================================
@@ -1959,6 +1969,7 @@ def process_rule(config, rule, save_only=False):
     recipient = rule.get("email", config["email"]["server"]["email"])
     template_path = rule.get("template", "")
     subject_template = rule.get("subject", "")
+    logging = rule.get("log", False)
 
     log(f"Processing rule: '{rule_name}' (ref: {ref})")
 
@@ -2054,6 +2065,21 @@ def process_rule(config, rule, save_only=False):
         if "id" in item:
             known_by_id[item["id"]] = item
 
+    known_ids = set(known_by_id.keys())
+    returning_ids = set()
+    if logging:
+        current_ids = {item.get("id") for item in all_items if item.get("id")}
+        new_ids = current_ids - known_ids
+        disappeared_ids = known_ids - current_ids
+        rule_log(rule_name, f"--- RUN START (fetched={len(all_items)}, "
+                 f"known={len(known_items)}) ---")
+        rule_log(rule_name, f"  Current IDs: {sorted(current_ids)}")
+        if new_ids:
+            rule_log(rule_name, f"  New IDs (not in state): {sorted(new_ids)}")
+        if disappeared_ids:
+            rule_log(rule_name, f"  Disappeared IDs (in state, not on page): "
+                     f"{sorted(disappeared_ids)}")
+
     # Find items to notify about
     notify_always = rule.get("notify") == "always"
     notify_items = []
@@ -2074,13 +2100,17 @@ def process_rule(config, rule, save_only=False):
             if current_state is None:
                 continue
             if prev is None:
-                # New item — notify if not silent
                 if not item.get("_silent", False):
                     notify_items.append(item)
+                    if logging:
+                        rule_log(rule_name, f"  NOTIFY (new+track): "
+                                 f"id={item_id} state={current_state}")
             elif current_state != prev_state:
-                # State changed — notify if new state is not silent
                 if not item.get("_silent", False):
                     notify_items.append(item)
+                    if logging:
+                        rule_log(rule_name, f"  NOTIFY (state change): "
+                                 f"id={item_id} {prev_state} -> {current_state}")
     else:
         # Validator mode: notify on _valid transitions
         for item in all_items:
@@ -2089,11 +2119,26 @@ def process_rule(config, rule, save_only=False):
                 continue
             prev = known_by_id.get(item_id)
             if prev is None:
-                # New item that passes validator
                 notify_items.append(item)
+                if logging:
+                    reason = "new"
+                    if item_id in known_ids:
+                        reason = "RETURNING (was in state, disappeared, back now)"
+                        returning_ids.add(item_id)
+                    rule_log(rule_name, f"  NOTIFY ({reason}): id={item_id} "
+                             f"title={item.get('title', '')[:60]}")
             elif not prev.get("_valid", True):
-                # Was invalid before, now valid — threshold crossed
                 notify_items.append(item)
+                if logging:
+                    rule_log(rule_name, f"  NOTIFY (threshold crossed): "
+                             f"id={item_id} title={item.get('title', '')[:60]}")
+
+    if logging:
+        rule_log(rule_name, f"  Total notifications: {len(notify_items)}")
+        if returning_ids:
+            rule_log(rule_name, f"  !! RETURNING IDs (likely cause of duplicates): "
+                     f"{sorted(returning_ids)}")
+        rule_log(rule_name, "--- RUN END ---\n")
 
     if notify_items:
         info(f"[{rule_name}] {len(notify_items)} new item(s) — sending notification")
@@ -2295,6 +2340,10 @@ def run():
 
     for rule in rules:
         rule_name = rule["name"]
+
+        if rule.get("enabled") is False:
+            log(f"Skipping '{rule_name}' (disabled)")
+            continue
 
         if force_rule and rule_name != force_rule:
             continue

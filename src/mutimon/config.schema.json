@@ -510,6 +510,16 @@
       "required": ["ref", "name", "subject", "template", "email"],
       "additionalProperties": false,
       "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Set to false to disable this rule. Disabled rules are skipped entirely, even with --force."
+        },
+        "log": {
+          "type": "boolean",
+          "default": false,
+          "description": "Set to true to enable debug logging for this rule. Logs are written to ~/.mutimon/logs/<rule_name>.log with item IDs, state diffs, and notification reasons."
+        },
         "ref": {
           "type": "string",
           "description": "Name of a definition in the 'defs' object to use for scraping.",
