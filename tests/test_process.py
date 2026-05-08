@@ -1,5 +1,6 @@
 """Tests for process_rule, fetch, and higher-level integration."""
 
+from datetime import datetime, timedelta
 from unittest import mock
 
 import pytest
@@ -346,6 +347,496 @@ class TestProcessRule:
 
         state = main.load_state("test-dedup")
         assert len(state) == 1  # Deduped
+
+
+# ========================= init mode =========================
+
+
+class TestInitMode:
+    def setup_method(self):
+        main.setup_liquid({"defs": {}})
+
+    def _make_config(self, tmp_mutimon):
+        template = tmp_mutimon / "templates" / "test"
+        template.write_text(
+            "Items: {{count}}\n{% for item in items %}{{item.title}}\n{% endfor %}"
+        )
+        return {
+            "email": {
+                "server": {
+                    "host": "smtp.test.com",
+                    "port": 587,
+                    "password": "pass",
+                    "email": "from@test.com",
+                }
+            },
+            "defs": {
+                "test-site": {
+                    "url": "https://example.com",
+                    "query": {
+                        "type": "list",
+                        "selector": "div.item",
+                        "id": {"type": "attribute", "name": "data-id"},
+                        "variables": {
+                            "title": {
+                                "selector": "h3",
+                                "value": {"type": "text"},
+                            },
+                        },
+                    },
+                }
+            },
+            "rules": [],
+        }
+
+    def _mock_fetch(self, html):
+        fake_resp = mock.MagicMock()
+        fake_resp.text = html
+        fake_resp.headers = {}
+        return mock.patch("mutimon.main.requests.request", return_value=fake_resp)
+
+    def test_init_saves_state_without_email(self, tmp_mutimon):
+        config = self._make_config(tmp_mutimon)
+        rule = {
+            "ref": "test-site",
+            "name": "test-init",
+            "subject": "New: {{count}}",
+            "template": "./templates/test",
+            "email": "user@test.com",
+        }
+        html = """
+        <html><body>
+        <div class="item" data-id="1"><h3>First</h3></div>
+        <div class="item" data-id="2"><h3>Second</h3></div>
+        </body></html>
+        """
+        with self._mock_fetch(html):
+            with mock.patch("mutimon.main.send_email") as mock_send:
+                main.process_rule(config, rule, init=True)
+                mock_send.assert_not_called()
+
+        state = main.load_state("test-init")
+        assert len(state) == 2
+
+    def test_init_cli_flag(self, tmp_mutimon, write_config, sample_config):
+        write_config()
+        template = tmp_mutimon / "templates" / "test"
+        template.write_text("{{count}}")
+        html = '<html><body><div class="item"><h3>X</h3><a href="/x">x</a></div></body></html>'
+        fake_resp = mock.MagicMock()
+        fake_resp.text = html
+        fake_resp.headers = {}
+        with mock.patch("sys.argv", ["mon", "--init", "test-rule"]):
+            with mock.patch("mutimon.main.requests.request", return_value=fake_resp):
+                with mock.patch("mutimon.main.send_email") as mock_send:
+                    main.run()
+                    mock_send.assert_not_called()
+
+        state = main.load_state("test-rule")
+        assert len(state) > 0
+
+
+# ========================= enabled flag =========================
+
+
+class TestEnabledFlag:
+    def setup_method(self):
+        main.setup_liquid({"defs": {}})
+
+    def test_disabled_rule_skipped(self, tmp_mutimon, write_config, sample_config):
+        sample_config["rules"][0]["enabled"] = False
+        write_config(sample_config)
+        template = tmp_mutimon / "templates" / "test"
+        template.write_text("{{count}}")
+        with mock.patch("sys.argv", ["mon", "--force"]):
+            with mock.patch("mutimon.main.requests.request") as mock_req:
+                with mock.patch("mutimon.main.send_email"):
+                    main.run()
+                    mock_req.assert_not_called()
+
+    def test_enabled_true_runs(self, tmp_mutimon, write_config, sample_config):
+        sample_config["rules"][0]["enabled"] = True
+        write_config(sample_config)
+        template = tmp_mutimon / "templates" / "test"
+        template.write_text("{{count}}")
+        html = '<html><body><div class="item"><h3>X</h3><a href="/x">x</a></div></body></html>'
+        fake_resp = mock.MagicMock()
+        fake_resp.text = html
+        fake_resp.headers = {}
+        with mock.patch("sys.argv", ["mon", "--force"]):
+            with mock.patch("mutimon.main.requests.request", return_value=fake_resp):
+                with mock.patch("mutimon.main.send_email"):
+                    main.run()
+
+        state = main.load_state("test-rule")
+        assert len(state) > 0
+
+
+# ========================= per-rule logging =========================
+
+
+class TestRuleLogging:
+    def setup_method(self):
+        main.setup_liquid({"defs": {}})
+
+    def _make_config(self, tmp_mutimon):
+        template = tmp_mutimon / "templates" / "test"
+        template.write_text("{{count}}")
+        return {
+            "email": {
+                "server": {
+                    "host": "smtp.test.com",
+                    "port": 587,
+                    "password": "pass",
+                    "email": "from@test.com",
+                }
+            },
+            "defs": {
+                "test-site": {
+                    "url": "https://example.com",
+                    "query": {
+                        "type": "list",
+                        "selector": "div.item",
+                        "id": {"type": "attribute", "name": "data-id"},
+                        "variables": {
+                            "title": {
+                                "selector": "h3",
+                                "value": {"type": "text"},
+                            },
+                        },
+                    },
+                }
+            },
+            "rules": [],
+        }
+
+    def _mock_fetch(self, html):
+        fake_resp = mock.MagicMock()
+        fake_resp.text = html
+        fake_resp.headers = {}
+        return mock.patch("mutimon.main.requests.request", return_value=fake_resp)
+
+    def test_log_creates_file(self, tmp_mutimon, monkeypatch):
+        monkeypatch.setattr(main, "LOGS_DIR", str(tmp_mutimon / "logs"))
+        config = self._make_config(tmp_mutimon)
+        rule = {
+            "ref": "test-site",
+            "name": "test-log",
+            "log": True,
+            "subject": "New: {{count}}",
+            "template": "./templates/test",
+            "email": "user@test.com",
+        }
+        html = '<html><body><div class="item" data-id="1"><h3>Item</h3></div></body></html>'
+        with self._mock_fetch(html):
+            with mock.patch("mutimon.main.send_email"):
+                main.process_rule(config, rule)
+
+        log_file = tmp_mutimon / "logs" / "test-log.log"
+        assert log_file.exists()
+        content = log_file.read_text()
+        assert "RUN START" in content
+        assert "RUN END" in content
+
+    def test_log_false_no_file(self, tmp_mutimon, monkeypatch):
+        monkeypatch.setattr(main, "LOGS_DIR", str(tmp_mutimon / "logs"))
+        config = self._make_config(tmp_mutimon)
+        rule = {
+            "ref": "test-site",
+            "name": "test-nolog",
+            "subject": "New: {{count}}",
+            "template": "./templates/test",
+            "email": "user@test.com",
+        }
+        html = '<html><body><div class="item" data-id="1"><h3>Item</h3></div></body></html>'
+        with self._mock_fetch(html):
+            with mock.patch("mutimon.main.send_email"):
+                main.process_rule(config, rule)
+
+        log_file = tmp_mutimon / "logs" / "test-nolog.log"
+        assert not log_file.exists()
+
+
+# ========================= state retention =========================
+
+
+class TestStateRetention:
+    def setup_method(self):
+        main.setup_liquid({"defs": {}})
+
+    def _make_config(self, tmp_mutimon):
+        template = tmp_mutimon / "templates" / "test"
+        template.write_text("{{count}}")
+        return {
+            "email": {
+                "server": {
+                    "host": "smtp.test.com",
+                    "port": 587,
+                    "password": "pass",
+                    "email": "from@test.com",
+                }
+            },
+            "defs": {
+                "test-site": {
+                    "url": "https://example.com",
+                    "query": {
+                        "type": "list",
+                        "selector": "div.item",
+                        "id": {"type": "attribute", "name": "data-id"},
+                        "variables": {
+                            "title": {
+                                "selector": "h3",
+                                "value": {"type": "text"},
+                            },
+                        },
+                    },
+                }
+            },
+            "rules": [],
+        }
+
+    def _mock_fetch(self, html):
+        fake_resp = mock.MagicMock()
+        fake_resp.text = html
+        fake_resp.headers = {}
+        return mock.patch("mutimon.main.requests.request", return_value=fake_resp)
+
+    def test_disappeared_items_retained(self, tmp_mutimon):
+        config = self._make_config(tmp_mutimon)
+        rule = {
+            "ref": "test-site",
+            "name": "test-retain",
+            "subject": "New: {{count}}",
+            "template": "./templates/test",
+            "email": "user@test.com",
+        }
+        recent = datetime.now().isoformat()
+        main.save_state("test-retain", [
+            {"id": "1", "title": "Stays", "_valid": True, "_last_seen": recent},
+            {"id": "2", "title": "Gone", "_valid": True, "_last_seen": recent},
+        ])
+        html = '<html><body><div class="item" data-id="1"><h3>Stays</h3></div></body></html>'
+        with self._mock_fetch(html):
+            with mock.patch("mutimon.main.send_email"):
+                main.process_rule(config, rule)
+
+        state = main.load_state("test-retain")
+        ids = {item["id"] for item in state}
+        assert "1" in ids
+        assert "2" in ids
+
+    def test_old_items_pruned(self, tmp_mutimon):
+        config = self._make_config(tmp_mutimon)
+        rule = {
+            "ref": "test-site",
+            "name": "test-prune",
+            "subject": "New: {{count}}",
+            "template": "./templates/test",
+            "email": "user@test.com",
+        }
+        old = (datetime.now() - timedelta(days=60)).isoformat()
+        main.save_state("test-prune", [
+            {"id": "1", "title": "Current", "_valid": True, "_last_seen": old},
+            {"id": "2", "title": "Expired", "_valid": True, "_last_seen": old},
+        ])
+        html = '<html><body><div class="item" data-id="1"><h3>Current</h3></div></body></html>'
+        with self._mock_fetch(html):
+            with mock.patch("mutimon.main.send_email"):
+                main.process_rule(config, rule)
+
+        state = main.load_state("test-prune")
+        ids = {item["id"] for item in state}
+        assert "1" in ids
+        assert "2" not in ids
+
+    def test_returning_item_no_duplicate_notification(self, tmp_mutimon):
+        """Item disappears and reappears — should NOT trigger notification."""
+        config = self._make_config(tmp_mutimon)
+        rule = {
+            "ref": "test-site",
+            "name": "test-return",
+            "subject": "New: {{count}}",
+            "template": "./templates/test",
+            "email": "user@test.com",
+        }
+        recent = datetime.now().isoformat()
+        main.save_state("test-return", [
+            {"id": "1", "title": "First", "_valid": True, "_last_seen": recent},
+            {"id": "2", "title": "Second", "_valid": True, "_last_seen": recent},
+        ])
+        html = """
+        <html><body>
+        <div class="item" data-id="1"><h3>First</h3></div>
+        <div class="item" data-id="2"><h3>Second</h3></div>
+        </body></html>
+        """
+        with self._mock_fetch(html):
+            with mock.patch("mutimon.main.send_email") as mock_send:
+                main.process_rule(config, rule)
+                mock_send.assert_not_called()
+
+    def test_items_without_last_seen_retained(self, tmp_mutimon):
+        """Legacy items (no _last_seen) should be retained, not pruned."""
+        config = self._make_config(tmp_mutimon)
+        rule = {
+            "ref": "test-site",
+            "name": "test-legacy",
+            "subject": "New: {{count}}",
+            "template": "./templates/test",
+            "email": "user@test.com",
+        }
+        main.save_state("test-legacy", [
+            {"id": "1", "title": "Current", "_valid": True},
+            {"id": "2", "title": "Legacy no timestamp", "_valid": True},
+        ])
+        html = '<html><body><div class="item" data-id="1"><h3>Current</h3></div></body></html>'
+        with self._mock_fetch(html):
+            with mock.patch("mutimon.main.send_email"):
+                main.process_rule(config, rule)
+
+        state = main.load_state("test-legacy")
+        ids = {item["id"] for item in state}
+        assert "2" in ids
+
+    def test_last_seen_updated_on_fetch(self, tmp_mutimon):
+        config = self._make_config(tmp_mutimon)
+        rule = {
+            "ref": "test-site",
+            "name": "test-seen",
+            "subject": "New: {{count}}",
+            "template": "./templates/test",
+            "email": "user@test.com",
+        }
+        html = '<html><body><div class="item" data-id="1"><h3>Item</h3></div></body></html>'
+        with self._mock_fetch(html):
+            with mock.patch("mutimon.main.send_email"):
+                main.process_rule(config, rule)
+
+        state = main.load_state("test-seen")
+        assert len(state) == 1
+        assert "_last_seen" in state[0]
+
+
+# ========================= undefined variable error =========================
+
+
+class TestUndefinedVariableError:
+    def setup_method(self):
+        main.setup_liquid({"defs": {}})
+
+    def test_raises_on_missing_variable(self):
+        item = {"other_field": 42}
+        with pytest.raises(main.UndefinedVariableError, match="price"):
+            main.evaluate_single_validator(
+                {"test": "{{price}} > 10"}, item
+            )
+
+    def test_passes_with_present_variable(self):
+        item = {"price": 100.0}
+        assert main.evaluate_single_validator(
+            {"test": "{{price}} > 10"}, item
+        ) is True
+
+    def test_process_rule_sends_error_email(self, tmp_mutimon):
+        template = tmp_mutimon / "templates" / "test"
+        template.write_text("{{count}}")
+        config = {
+            "email": {
+                "server": {
+                    "host": "smtp.test.com",
+                    "port": 587,
+                    "password": "pass",
+                    "email": "from@test.com",
+                }
+            },
+            "defs": {
+                "test-site": {
+                    "url": "https://example.com",
+                    "query": {
+                        "type": "list",
+                        "selector": "div.item",
+                        "id": {"type": "attribute", "name": "data-id"},
+                        "variables": {
+                            "title": {
+                                "selector": "h3",
+                                "value": {"type": "text"},
+                            },
+                        },
+                    },
+                }
+            },
+            "rules": [],
+        }
+        rule = {
+            "ref": "test-site",
+            "name": "test-undef",
+            "subject": "New: {{count}}",
+            "template": "./templates/test",
+            "email": "user@test.com",
+            "input": [
+                {
+                    "params": {},
+                    "validator": {"test": "{{missing_var}} > 0"},
+                }
+            ],
+        }
+        html = '<html><body><div class="item" data-id="1"><h3>Item</h3></div></body></html>'
+        fake_resp = mock.MagicMock()
+        fake_resp.text = html
+        fake_resp.headers = {}
+        with mock.patch("mutimon.main.requests.request", return_value=fake_resp):
+            with mock.patch("mutimon.main.send_error_email") as mock_err:
+                main.process_rule(config, rule)
+                mock_err.assert_called_once()
+                assert "missing_var" in mock_err.call_args[0][1]
+
+        state = main.load_state("test-undef")
+        assert state == []
+
+
+# ========================= resolve_inputs with list params =========================
+
+
+class TestResolveInputsListParams:
+    def test_list_params_with_input_validator(self):
+        rule = {
+            "params": [
+                {"website_id": "abc", "site_name": "Site1"},
+                {"website_id": "def", "site_name": "Site2"},
+            ],
+            "input": {
+                "validator": {"test": "{{pageviews}} > 0"},
+            },
+        }
+        result = main.resolve_inputs(rule)
+        assert len(result) == 2
+        assert result[0]["params"] == {"website_id": "abc", "site_name": "Site1"}
+        assert result[1]["params"] == {"website_id": "def", "site_name": "Site2"}
+        assert result[0]["validator"] is not None
+        assert result[1]["validator"] is not None
+
+    def test_list_params_without_input(self):
+        rule = {
+            "params": [
+                {"q": "python"},
+                {"q": "rust"},
+            ],
+        }
+        result = main.resolve_inputs(rule)
+        assert len(result) == 2
+        assert result[0]["params"] == {"q": "python"}
+        assert result[1]["params"] == {"q": "rust"}
+
+    def test_input_entry_with_own_params_not_expanded(self):
+        rule = {
+            "params": [{"q": "a"}, {"q": "b"}],
+            "input": [
+                {"params": {"q": "override"}},
+            ],
+        }
+        result = main.resolve_inputs(rule)
+        assert len(result) == 1
+        assert result[0]["params"] == {"q": "override"}
 
 
 # ========================= send_error_email =========================
