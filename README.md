@@ -3,7 +3,7 @@
        alt="A minimalist dark gray logo showing a sequence of icons connected by arrows: a notification bell on the left, pointing right to a calendar with a clock on top, which then points right to a globe/network icon. Below the icons is the word 'MUTIMON' in bold uppercase letters." />
 </h1>
 
-[![pip](https://img.shields.io/badge/pip-0.3.0-blue.svg)](https://pypi.org/project/mutimon/)
+[![pip](https://img.shields.io/badge/pip-0.4.0-blue.svg)](https://pypi.org/project/mutimon/)
 [![CI](https://github.com/jcubic/mutimon/actions/workflows/ci.yml/badge.svg)](https://github.com/jcubic/mutimon/actions/workflows/ci.yml)
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/mutimon?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/mutimon)
 [![mutimon GitHub repo](https://img.shields.io/badge/github-mutimon-orange?logo=github)](https://github.com/jcubic/mutimon)
@@ -59,13 +59,16 @@ Edit `~/.mutimon/config.json` with your SMTP credentials and scraping rules, the
 mon                    # process rules; only prints notifications and errors
 mon --force            # ignore schedules, run all rules now
 mon --force <rule>     # ignore schedule, run only the named rule
+mon --init             # seed state for all rules without sending notifications
+mon --init <rule>      # seed state for a specific rule without sending notifications
 mon --dry-run          # fetch and display data, bypass schedules, no state changes
 mon --save-email       # save email to file instead of sending via SMTP
 mon --validate         # validate config against schema and exit
 mon --list             # list all rule names (usable with --force <rule>)
-mon --ai-guide         # print the path to the AI instruction file for adding websites
+mon --ai-guide         # print the AI instruction guide for adding websites
 mon --cron             # print a cron entry with resolved path (default: every 5 min)
 mon --cron "0 8 * * *" # print a cron entry with a custom schedule
+mon --completion bash  # output shell completion script (bash, zsh, or fish)
 mon -v, --verbose      # show detailed progress (page fetches, counts, skipped rules)
 mon -q, --quiet        # suppress all output including errors
 ```
@@ -87,6 +90,40 @@ Install it directly:
 
 Each rule's `schedule` field controls when it actually executes, so running `mon` frequently (e.g. every 5 minutes) is safe — rules only fire when their cron expression matches.
 
+### Seeding state (`--init`)
+
+Use `--init` to populate state files without sending any notifications. This is useful when adding new rules — without `--init`, the first run would send emails for all existing items on the page:
+
+```bash
+mon --init             # seed state for all rules
+mon --init my-rule     # seed state for a specific rule
+```
+
+Like `--force`, `--init` bypasses schedules. All items are fetched, validated, and saved to state, but no emails are sent.
+
+### Shell completion
+
+Tab completion is available for `bash`, `zsh`, and `fish`. It completes long options and rule names for `--force` and `--init`.
+
+Generate the completion script:
+
+```bash
+mon --completion bash  # or zsh, fish
+```
+
+Install for your shell:
+
+```bash
+# bash — add to ~/.bashrc
+eval "$(mon --completion bash)"
+
+# zsh — add to ~/.zshrc
+eval "$(mon --completion zsh)"
+
+# fish — add to ~/.config/fish/config.fish
+mon --completion fish | source
+```
+
 ## File structure
 
 ```
@@ -98,6 +135,8 @@ Each rule's `schedule` field controls when it actually executes, so running `mon
     hackernews
     .lastrun_hackernews    # last run timestamp for schedule tracking
     emails/                # saved copies of sent emails
+  logs/                    # per-rule debug logs (when log: true)
+    rule_name.log
 ```
 
 ## Configuration
@@ -183,6 +222,9 @@ Each rule references a definition and can override params, email recipient, temp
 | `email` | yes | Recipient email address |
 | `params` | no | Values for the definition's URL template variables. Used when `input` is not specified. |
 | `input` | no | One or more input entries with params and optional validators (see [Multiple inputs](#multiple-inputs)). Overrides `params`. |
+| `flatten` | no | When `true` (default), items from all inputs are merged into a flat list. When `false`, `items` is a nested list grouped by input entry (see [Grouped items](#grouped-items-flatten)). |
+| `enabled` | no | Set to `false` to disable a rule without removing it from the config. Disabled rules are skipped on every run. Default `true`. |
+| `log` | no | When `true`, write per-run debug logs to `~/.mutimon/logs/<rule_name>.log` with timestamps, item counts, notification decisions, and returning-ID detection. |
 
 ## Variable extraction
 
@@ -211,7 +253,7 @@ Each variable in `query.variables` defines how to extract a value from a matched
 |-------|-------------|
 | `regex` | Extract a capture group from the raw value. Uses group(1) if available. |
 | `prefix` | String prepended to the final value. Useful for turning relative URLs into absolute. |
-| `parse` | Convert the extracted string to a typed value. `"number"`: plain numeric parsing for integers and floats, strips commas as thousands separators (e.g. `"1,234"` -> `1234`, `"3.14"` -> `3.14`). `"money"`: locale-aware currency parsing via [babel](https://babel.pocoo.org/), auto-detects page language from `<html lang>` or `Content-Language` header, strips currency symbols and percent signs, handles US (`$70,528.40`), European (`11,8000 zł`), and mixed (`11.800,50 €`) formats. `"list"`: split the value into a list using the `delimiter` regex (default `\s*,\s*`), use `{% for x in item.field %}` in templates. `"json"`: parse the value as JSON, then optionally extract structured data with `query` (see [JSON extraction](#json-extraction)). Parsed values are used by validators. |
+| `parse` | Convert the extracted string to a typed value. `"number"`: plain numeric parsing for integers and floats, strips commas as thousands separators (e.g. `"1,234"` -> `1234`, `"3.14"` -> `3.14`). `"money"`: locale-aware currency parsing via [babel](https://babel.pocoo.org/), auto-detects page language from `<html lang>` or `Content-Language` header, strips currency symbols and percent signs, handles US (`$70,528.40`), European (`11,8000 zł`), and mixed (`11.800,50 €`) formats. `"list"`: split the value into a list using the `delimiter` regex (default `\s*,\s*`), use `{% for x in item.field %}` in templates. `"json"`: parse the value as JSON, then optionally extract structured data with `query` (see [JSON extraction](#json-extraction)). `"url"`: URL normalization using `urljoin` — when combined with `prefix`, the value is resolved as a relative URL against the prefix base (e.g. `prefix: "https://example.com"` + value `"/page?id=1"` → `"https://example.com/page?id=1"`). Unlike plain `prefix` which concatenates strings, `"url"` handles relative paths, query strings, and fragments correctly. Parsed values are used by validators. |
 | `delimiter` | Regex pattern used to split the value when `parse` is `"list"`. Defaults to `\s*,\s*` (comma with optional surrounding whitespace). |
 | `query` | Only for `parse: "json"`. Defines how to navigate and extract variables from the parsed JSON using [JMESPath](https://jmespath.org/) (see [JSON extraction](#json-extraction)). |
 
@@ -591,6 +633,52 @@ The `each.values` array can also contain objects, accessed via dot notation:
   "params": { "url": "https://example.com/{{data.category}}/type/{{data.type}}" }
 }
 ```
+
+### Grouped items (`flatten`)
+
+By default, when a rule has multiple `input` entries, all fetched items are merged into a single flat list. Set `"flatten": false` on the rule to keep items grouped by input entry — `items` becomes a nested list (list of lists), one group per input.
+
+```json
+{
+  "ref": "wiki",
+  "name": "wiki-monitoring",
+  "flatten": false,
+  "input": [
+    { "params": { "page": "SEO" } },
+    { "params": { "page": "UKEN" } }
+  ],
+  ...
+}
+```
+
+In the template, iterate over groups and items within each group:
+
+```liquid
+{% for group in items %}
+{% assign first = group | first %}
+============================================================
+{{ first._input.page }}
+============================================================
+
+{% for item in group %}
+{{ item.title }}
+{% endfor %}
+
+{{ first._search_url }}
+{% endfor %}
+```
+
+Each item in grouped mode gets additional metadata:
+
+| Variable | Description |
+|----------|-------------|
+| `{{ item._search_url }}` | The rendered URL for that item's input entry |
+| `{{ item._input }}` | The params object for that item's input entry (e.g. `{{ item._input.page }}`) |
+| `{{ item.index }}` | Global 1-based index spanning all groups |
+
+`{{ count }}` is the total number of items across all groups. `{{ search_url }}` is the URL of the first input entry.
+
+When `flatten` is `true` (default) or there is only one input entry, the template works as usual with a flat `items` list.
 
 ## Validators
 
