@@ -546,6 +546,11 @@
             }
           ]
         },
+        "flatten": {
+          "type": "boolean",
+          "default": true,
+          "description": "When true (default), items from all inputs are merged into a flat list. When false, items is a nested list grouped by input — use {% for group in items %}{% for item in group %} in templates. Each item in a group has _search_url and _input (the input params)."
+        },
         "notify": {
           "type": "string",
           "enum": ["always"],

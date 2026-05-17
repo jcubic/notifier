@@ -1,5 +1,6 @@
 pyrightconfig.json
 __pycache__
+coverage.lcov
 build
 *.egg-info
 .coverage

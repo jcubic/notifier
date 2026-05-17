@@ -974,6 +974,115 @@ class TestRenderEmail:
         assert "1," in body
         assert "2," in body
 
+    def test_nested_items_structure(self):
+        template = (
+            "{% for group in items %}"
+            "[{% for item in group %}{{item.title}},{% endfor %}]"
+            "{% endfor %}"
+        )
+        items = [
+            [{"title": "A"}, {"title": "B"}],
+            [{"title": "C"}],
+        ]
+        definition = {"url": "https://example.com/{{page}}"}
+        input_groups = [
+            {"params": {"page": "p1"}, "search_url": "https://example.com/p1"},
+            {"params": {"page": "p2"}, "search_url": "https://example.com/p2"},
+        ]
+        _, body = main.render_email(
+            template, "", items, {}, definition, input_groups=input_groups
+        )
+        assert "[A,B,]" in body
+        assert "[C,]" in body
+
+    def test_nested_items_count_is_total(self):
+        template = "Total: {{count}}"
+        items = [
+            [{"title": "A"}, {"title": "B"}],
+            [{"title": "C"}],
+        ]
+        definition = {"url": "https://example.com/{{page}}"}
+        input_groups = [
+            {"params": {"page": "p1"}, "search_url": "https://example.com/p1"},
+            {"params": {"page": "p2"}, "search_url": "https://example.com/p2"},
+        ]
+        _, body = main.render_email(
+            template, "", items, {}, definition, input_groups=input_groups
+        )
+        assert "Total: 3" in body
+
+    def test_nested_items_global_index(self):
+        template = (
+            "{% for group in items %}"
+            "{% for item in group %}{{item.index}},{% endfor %}"
+            "{% endfor %}"
+        )
+        items = [
+            [{"title": "A"}, {"title": "B"}],
+            [{"title": "C"}],
+        ]
+        definition = {"url": "https://example.com/{{page}}"}
+        input_groups = [
+            {"params": {"page": "p1"}, "search_url": "https://example.com/p1"},
+            {"params": {"page": "p2"}, "search_url": "https://example.com/p2"},
+        ]
+        _, body = main.render_email(
+            template, "", items, {}, definition, input_groups=input_groups
+        )
+        assert "1,2," in body
+        assert "3," in body
+
+    def test_nested_items_search_url(self):
+        template = (
+            "{% for group in items %}"
+            "{% for item in group %}{{item._search_url}}\n{% endfor %}"
+            "{% endfor %}"
+        )
+        items = [
+            [{"title": "A"}],
+            [{"title": "B"}],
+        ]
+        definition = {"url": "https://example.com/{{page}}"}
+        input_groups = [
+            {"params": {"page": "p1"}, "search_url": "https://example.com/p1"},
+            {"params": {"page": "p2"}, "search_url": "https://example.com/p2"},
+        ]
+        _, body = main.render_email(
+            template, "", items, {}, definition, input_groups=input_groups
+        )
+        assert "https://example.com/p1" in body
+        assert "https://example.com/p2" in body
+
+    def test_nested_items_input_params(self):
+        template = (
+            "{% for group in items %}"
+            "{% assign first = group | first %}"
+            "{{first._input.page}}:"
+            "{% for item in group %}{{item.title}},{% endfor %}"
+            "{% endfor %}"
+        )
+        items = [
+            [{"title": "A"}],
+            [{"title": "B"}],
+        ]
+        definition = {"url": "https://example.com/{{page}}"}
+        input_groups = [
+            {"params": {"page": "SEO"}, "search_url": "https://example.com/SEO"},
+            {"params": {"page": "UKEN"}, "search_url": "https://example.com/UKEN"},
+        ]
+        _, body = main.render_email(
+            template, "", items, {}, definition, input_groups=input_groups
+        )
+        assert "SEO:A," in body
+        assert "UKEN:B," in body
+
+    def test_flat_items_unchanged_without_input_groups(self):
+        template = "{% for item in items %}{{item.title}},{% endfor %}"
+        items = [{"title": "A"}, {"title": "B"}]
+        definition = {"url": "https://example.com"}
+        _, body = main.render_email(template, "", items, {}, definition)
+        assert "A,B," in body
+
 
 class TestLoadTemplate:
     def test_load_existing(self, tmp_mutimon):

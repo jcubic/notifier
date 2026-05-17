@@ -1642,29 +1642,49 @@ def load_template(template_path):
         return f.read()
 
 
-def render_email(template_str, subject_template, items, params, definition):
+def render_email(template_str, subject_template, items, params, definition,
+                 *, input_groups=None):
     """
     Render the email body and subject using Liquid templates.
 
     Context includes:
       - all params (e.g. query)
-      - items: list of extracted data dicts (with index added)
-      - count: number of items
+      - items: list of extracted data dicts (with index added),
+               or list of lists when input_groups is provided
+      - count: total number of items
       - now: current datetime string
-      - search_url: the rendered URL
+      - search_url: the rendered URL (first input when grouped)
     """
     search_url = render_url(definition.get("url", ""), params)
 
-    # Add 1-based index to items
-    indexed_items = []
-    for i, item in enumerate(items, 1):
-        item_copy = dict(item)
-        item_copy["index"] = i
-        indexed_items.append(item_copy)
+    if input_groups:
+        indexed_groups = []
+        total_count = 0
+        global_index = 1
+        for group_info, group_items in zip(input_groups, items):
+            indexed_group = []
+            for item in group_items:
+                item_copy = dict(item)
+                item_copy["index"] = global_index
+                item_copy["_search_url"] = group_info["search_url"]
+                item_copy["_input"] = group_info["params"]
+                indexed_group.append(item_copy)
+                global_index += 1
+            indexed_groups.append(indexed_group)
+            total_count += len(group_items)
+        context = liquid_context(params)
+        context["items"] = indexed_groups
+        context["count"] = total_count
+    else:
+        indexed_items = []
+        for i, item in enumerate(items, 1):
+            item_copy = dict(item)
+            item_copy["index"] = i
+            indexed_items.append(item_copy)
+        context = liquid_context(params)
+        context["items"] = indexed_items
+        context["count"] = len(items)
 
-    context = liquid_context(params)
-    context["items"] = indexed_items
-    context["count"] = len(items)
     context["now"] = str(datetime.now())
     context["search_url"] = search_url
 
@@ -2006,10 +2026,11 @@ def process_rule(config, rule, save_only=False, init=False):
     validators_defs = config.get("defs", {}).get("validators", {})
     inputs = resolve_inputs(rule, validators_defs)
     all_items = []
+    input_groups = []
 
     has_track = any(inp.get("track") for inp in inputs)
 
-    for input_entry in inputs:
+    for input_index, input_entry in enumerate(inputs):
         params = input_entry["params"]
         validator = input_entry["validator"]
         track = input_entry.get("track")
@@ -2066,6 +2087,14 @@ def process_rule(config, rule, save_only=False, init=False):
             if validator and valid_count != len(items):
                 log(f"  Validator: {valid_count}/{len(items)} item(s) passed")
 
+        search_url = render_url(definition.get("url", ""), params)
+        input_groups.append({
+            "params": dict(params),
+            "search_url": search_url,
+            "item_ids": {item.get("id") for item in items},
+        })
+        for item in items:
+            item["_group_index"] = input_index
         all_items.extend(items)
 
     # Deduplicate items by ID (multiple inputs may return overlapping results)
@@ -2179,13 +2208,27 @@ def process_rule(config, rule, save_only=False, init=False):
 
             # Use first input's params as the base template context
             base_params = inputs[0]["params"]
+            flatten = rule.get("flatten", True)
 
             # Load and render template
             template_str = load_template(template_path)
             if template_str:
-                subject, body = render_email(
-                    template_str, subject_template, notify_items, base_params, definition
-                )
+                if not flatten and len(input_groups) > 1:
+                    grouped = []
+                    for gi in input_groups:
+                        group = [i for i in notify_items
+                                 if i.get("id") in gi["item_ids"]]
+                        if group:
+                            grouped.append(group)
+                    subject, body = render_email(
+                        template_str, subject_template, grouped,
+                        base_params, definition, input_groups=input_groups
+                    )
+                else:
+                    subject, body = render_email(
+                        template_str, subject_template, notify_items,
+                        base_params, definition
+                    )
                 if save_only:
                     save_email_to_file(rule_name, subject, body)
                 else:
@@ -2246,6 +2289,8 @@ def process_rule(config, rule, save_only=False, init=False):
                      f"{pruned} pruned (retain={retain_days}d)")
         rule_log(rule_name, "--- RUN END ---\n")
 
+    for item in all_items:
+        item.pop("_group_index", None)
     save_state(rule_name, all_items)
     save_last_run(rule_name)
     log(f"  State saved for '{rule_name}'")
