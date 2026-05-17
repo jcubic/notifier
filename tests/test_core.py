@@ -1076,6 +1076,30 @@ class TestRenderEmail:
         assert "SEO:A," in body
         assert "UKEN:B," in body
 
+    def test_nested_items_first_group_empty(self):
+        """When the first input has no notify items, the second group's items
+        must still get the second input's metadata (not the first's)."""
+        template = (
+            "{% for group in items %}"
+            "{% assign first = group | first %}"
+            "{{first._input.page}}:"
+            "{% for item in group %}{{item.title}},{% endfor %}"
+            "{% endfor %}"
+        )
+        # Only one group — the second input's items
+        items = [
+            [{"title": "X"}],
+        ]
+        definition = {"url": "https://example.com/{{page}}"}
+        # Only the matching input_groups entry should be passed
+        input_groups = [
+            {"params": {"page": "UKEN"}, "search_url": "https://example.com/UKEN"},
+        ]
+        _, body = main.render_email(
+            template, "", items, {}, definition, input_groups=input_groups
+        )
+        assert "UKEN:X," in body
+
     def test_flat_items_unchanged_without_input_groups(self):
         template = "{% for item in items %}{{item.title}},{% endfor %}"
         items = [{"title": "A"}, {"title": "B"}]

@@ -2027,6 +2027,7 @@ def process_rule(config, rule, save_only=False, init=False):
     inputs = resolve_inputs(rule, validators_defs)
     all_items = []
     input_groups = []
+    flatten = rule.get("flatten", True)
 
     has_track = any(inp.get("track") for inp in inputs)
 
@@ -2091,14 +2092,14 @@ def process_rule(config, rule, save_only=False, init=False):
         input_groups.append({
             "params": dict(params),
             "search_url": search_url,
-            "item_ids": {item.get("id") for item in items},
         })
-        for item in items:
-            item["_group_index"] = input_index
+        if not flatten:
+            for item in items:
+                item["_group_index"] = input_index
         all_items.extend(items)
 
-    # Deduplicate items by ID (multiple inputs may return overlapping results)
-    if len(inputs) > 1:
+    # Deduplicate items by ID when flattening (multiple inputs may overlap)
+    if flatten and len(inputs) > 1:
         seen_ids = set()
         unique_items = []
         for item in all_items:
@@ -2208,21 +2209,23 @@ def process_rule(config, rule, save_only=False, init=False):
 
             # Use first input's params as the base template context
             base_params = inputs[0]["params"]
-            flatten = rule.get("flatten", True)
 
             # Load and render template
             template_str = load_template(template_path)
             if template_str:
                 if not flatten and len(input_groups) > 1:
-                    grouped = []
-                    for gi in input_groups:
-                        group = [i for i in notify_items
-                                 if i.get("id") in gi["item_ids"]]
-                        if group:
-                            grouped.append(group)
+                    grouped = [[] for _ in input_groups]
+                    for item in notify_items:
+                        grouped[item.get("_group_index", 0)].append(item)
+                    filtered = [
+                        (input_groups[i], g)
+                        for i, g in enumerate(grouped) if g
+                    ]
+                    grouped_info = [pair[0] for pair in filtered]
+                    grouped_items = [pair[1] for pair in filtered]
                     subject, body = render_email(
-                        template_str, subject_template, grouped,
-                        base_params, definition, input_groups=input_groups
+                        template_str, subject_template, grouped_items,
+                        base_params, definition, input_groups=grouped_info
                     )
                 else:
                     subject, body = render_email(
